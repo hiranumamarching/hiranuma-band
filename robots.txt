@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://hiranumamarching.github.io/hiranuma-band/sitemap.xml
