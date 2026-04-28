@@ -172,11 +172,26 @@
     .info-grid {
       display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;
     }
+    @media (max-width: 600px) {
+      .info-grid { grid-template-columns: 1fr; }
+    }
     .info-item {
       background: #e8eaf6; border-radius: 12px; padding: 16px 20px;
     }
-    .info-item .label { font-size: 0.75rem; color: #5c6bc0; font-weight: 700; margin-bottom: 4px; }
+    .info-item .label { font-size: 0.75rem; color: #5c6bc0; font-weight: 700; margin-bottom: 8px; }
     .info-item .value { font-size: 0.95rem; color: #1a237e; font-weight: 700; }
+    .schedule-list { list-style: none; padding: 0; margin: 0; }
+    .schedule-list li {
+      padding: 6px 0;
+      border-bottom: 1px solid #c5cae9;
+      font-size: 0.9rem;
+      color: #1a237e;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+    .schedule-list li:last-child { border-bottom: none; }
+    .schedule-list .date { display: block; }
+    .schedule-list .time { font-size: 0.82rem; color: #3949ab; font-weight: 600; }
     .contact-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
     .contact-link {
       display: inline-flex; align-items: center; gap: 6px;
@@ -563,7 +578,24 @@
       <div class="info-grid">
         <div class="info-item">
           <div class="label">📅 次回練習日</div>
-       <div class="value">5月9日(土) 10:00〜(管楽器) / 13:00〜(鍵盤)<br>5月16日(土) 13:00〜(打楽器/鍵盤)<br>5月23日(土) 13:00〜(打楽器)<br>5月30日(土) 13:30〜(打楽器)</div>
+          <ul class="schedule-list">
+            <li>
+              <span class="date">5月9日(土)</span>
+              <span class="time">10:00〜(管楽器) / 13:00〜(鍵盤)</span>
+            </li>
+            <li>
+              <span class="date">5月16日(土)</span>
+              <span class="time">13:00〜(打楽器/鍵盤)</span>
+            </li>
+            <li>
+              <span class="date">5月23日(土)</span>
+              <span class="time">13:00〜(打楽器)</span>
+            </li>
+            <li>
+              <span class="date">5月30日(土)</span>
+              <span class="time">13:30〜(打楽器)</span>
+            </li>
+          </ul>
         </div>
         <div class="info-item">
           <div class="label">📍 場所</div>
@@ -686,11 +718,11 @@
       </div>
       <div class="qa-item">
         <div class="qa-q"><span class="qa-label">Q</span>部員数は何名でしょうか？</div>
-        <div class="qa-a"><span class="qa-label a">A</span>6年生3名、4年生5名、3年生1名の計9名です。最近、男子部員(2名)も加わりました。</div>
+        <div class="qa-a"><span class="qa-label a">A</span>5年生3名、3年生5名、2年生1名、1年生1名の計10名です。最近、男子部員(2名)も加わりました。</div>
       </div>
       <div class="qa-item">
         <div class="qa-q"><span class="qa-label">Q</span>費用を教えてください</div>
-        <div class="qa-a"><span class="qa-label a">A</span>月謝3,500円と年に1度の保険料1,000円です。定期演奏会や遠征などでの多額な費用負担はありません。</div>
+        <div class="qa-a"><span class="qa-label a">A</span>月謝4,000円と年に1度の保険料1,000円です。定期演奏会や遠征などでの多額な費用負担はありません。</div>
       </div>
       <div class="qa-item">
         <div class="qa-q"><span class="qa-label">Q</span>実際の雰囲気を見てみたいのですが</div>
