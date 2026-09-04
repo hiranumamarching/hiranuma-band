@@ -68,6 +68,7 @@ function handleWrite_(request) {
     case 'admin_save_duty_assignments':
     case 'admin_save_event':
     case 'admin_save_timeline_items':
+    case 'admin_save_teacher_availability':
     case 'admin_publish_month':
       requireRole_(auth, 'admin');
       return { ok: true, data: saveAdmin_(request) };
@@ -229,11 +230,36 @@ function saveAdmin_(request) {
       return adminAppend_(request.records || [], 'events', ['予定ID', '本番名']);
     case 'admin_save_timeline_items':
       return adminAppend_(request.records || [], 'timeline_items', ['項目ID', '予定ID', '日区分', '種別', '内容']);
+    case 'admin_save_teacher_availability':
+      return adminSaveTeacherAvailability_(request.records || []);
     case 'admin_publish_month':
       return adminPublishMonth_(request.monthId);
     default:
       throw apiError_(API_ERROR.INVALID_REQUEST, '管理者 action が不正です。');
   }
+}
+
+/**
+ * 締切を過ぎた先生の可否を、管理者が代理で入力・修正するための書き込み。
+ * 先生本人の締切チェック(ensureDeadlineOpen_)は行わない。
+ */
+function adminSaveTeacherAvailability_(records) {
+  if (!Array.isArray(records) || !records.length) throw apiError_(API_ERROR.INVALID_REQUEST, '可否の入力がありません。');
+  const sessions = indexBy_(latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; }), '予定ID');
+  const teachers = indexBy_(readTable_('m_teachers'), '先生ID');
+  const rows = records.map(function(row) {
+    const session = sessions[row.sessionId];
+    if (!session) throw apiError_(API_ERROR.INVALID_REQUEST, '予定IDが不正です。');
+    if (!teachers[row.teacherId]) throw apiError_(API_ERROR.INVALID_REQUEST, '先生IDが不正です。');
+    const slot = String(row.slot || '');
+    if (['午前', '午後', '終日'].indexOf(slot) === -1) throw apiError_(API_ERROR.INVALID_REQUEST, '枠が不正です。');
+    if (session['種別'] === '本番' && slot !== '終日') throw apiError_(API_ERROR.INVALID_REQUEST, '本番は終日で入力します。');
+    if (session['種別'] !== '本番' && slot === '終日') throw apiError_(API_ERROR.INVALID_REQUEST, '練習は午前または午後で入力します。');
+    if (['○', '×', '△'].indexOf(String(row.availability || '')) === -1) throw apiError_(API_ERROR.INVALID_REQUEST, '可否が不正です。');
+    return { '先生ID': row.teacherId, '予定ID': session['予定ID'], '枠': slot, '可否': row.availability, '送信時刻': new Date() };
+  });
+  withWriteLock_(function() { appendObjects_('teacher_availability', rows); });
+  return { saved: rows.length };
 }
 
 function adminCreateMonth_(request) {
