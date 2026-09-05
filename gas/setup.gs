@@ -11,7 +11,7 @@ const BAND_DB_SCHEMA = {
   m_teachers: ['先生ID', '氏名', '招待トークン', '在籍'],
   m_places: ['場所ID', '名称', '並び順'],
   months: ['月ID', '状態', '先生入力締切', '保護者入力締切'],
-  sessions: ['予定ID', '月ID', '日付', '種別', 'staffing', '担当先生ID', '集合', '開始', '終了', '解散', '場所ID', '確定状態', '備考'],
+  sessions: ['予定ID', '月ID', '日付', '種別', 'staffing_am', '担当先生ID_am', 'staffing_pm', '担当先生ID_pm', '集合', '開始', '終了', '解散', '場所ID', '確定状態', '備考'],
   session_selfpractice: ['予定ID', '鍵の担当', '中止判断者', '緊急連絡先', '施設使用申請済', '実施報告'],
   teacher_availability: ['先生ID', '予定ID', '枠', '可否', '送信時刻'],
   attendance: ['子どもID', '予定ID', '午前', '午後', '連絡事項', '入力者', '送信時刻'],
@@ -50,6 +50,7 @@ function setupBandDatabase() {
     properties.setProperty('ADMIN_TOKEN', adminToken);
   }
 
+  migrateSessionsSchema();
   seedDemoData_(spreadsheet);
   const result = {
     spreadsheetId: spreadsheetId,
@@ -97,10 +98,10 @@ function seedDemoData_(spreadsheet) {
   appendSeedRows_(spreadsheet.getSheetByName('m_guardians'), guardianRows);
   appendSeedRows_(spreadsheet.getSheetByName('m_members'), memberRows);
   appendSeedRows_(spreadsheet.getSheetByName('m_teachers'), [
-    ['T001', '粂先生', createInviteToken_(), true],
-    ['T002', '峯尾先生', createInviteToken_(), true],
-    ['T003', '小河先生', createInviteToken_(), true],
-    ['T004', '古山先生', createInviteToken_(), true]
+    ['T001', 'テスト先生A', createInviteToken_(), true],
+    ['T002', 'テスト先生B', createInviteToken_(), true],
+    ['T003', 'テスト先生C', createInviteToken_(), true],
+    ['T004', 'テスト先生D', createInviteToken_(), true]
   ]);
   appendSeedRows_(spreadsheet.getSheetByName('m_places'), [
     ['P001', '平沼小学校', 1], ['P002', '西公会堂', 2], ['P003', 'ステージ', 3],
@@ -108,10 +109,10 @@ function seedDemoData_(spreadsheet) {
   ]);
   appendSeedRows_(spreadsheet.getSheetByName('months'), [['2026-09', '下書き', '', '']]);
   appendSeedRows_(spreadsheet.getSheetByName('sessions'), [
-    ['S20260905', '2026-09', '2026-09-05', '通常練習', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', ''],
-    ['S20260912', '2026-09', '2026-09-12', '通常練習', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', ''],
-    ['S20260919', '2026-09', '2026-09-19', '通常練習', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', ''],
-    ['S20260926', '2026-09', '2026-09-26', '通常練習', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', '']
+    ['S20260905', '2026-09', '2026-09-05', '通常練習', '未定', '', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', ''],
+    ['S20260912', '2026-09', '2026-09-12', '通常練習', '未定', '', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', ''],
+    ['S20260919', '2026-09', '2026-09-19', '通常練習', '未定', '', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', ''],
+    ['S20260926', '2026-09', '2026-09-26', '通常練習', '未定', '', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', '']
   ]);
 }
 
@@ -122,4 +123,26 @@ function appendSeedRows_(sheet, rows) {
 
 function createInviteToken_() {
   return Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
+}
+
+/** 旧列・既存行を残し、足りないヘッダーと移行行だけを追記する。再実行可能。 */
+function migrateSessionsSchema() {
+  return withWriteLock_(function() {
+    const sheet = getDatabase_().getSheetByName('sessions');
+    if (!sheet) throw new Error('sessions がありません。');
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const missing = BAND_DB_SCHEMA.sessions.filter(function(key) { return headers.indexOf(key) < 0; });
+    if (missing.length) sheet.getRange(1, headers.length + 1, 1, missing.length).setValues([missing]);
+    const rows = latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; });
+    const migrated = rows.filter(function(row) { return !row.staffing_am; }).map(function(row) {
+      const next = copyObject_(row);
+      next.staffing_am = row.staffing || '未定';
+      next['担当先生ID_am'] = next.staffing_am === '先生あり' ? row['担当先生ID'] || '' : '';
+      next.staffing_pm = row['種別'] === '本番' ? '' : next.staffing_am;
+      next['担当先生ID_pm'] = row['種別'] === '本番' ? '' : next['担当先生ID_am'];
+      return next;
+    });
+    if (migrated.length) appendObjects_('sessions', migrated);
+    return { columnsAdded: missing.length, sessionsMigrated: migrated.length };
+  });
 }

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>運営管理｜平沼マーチングバンド</title>
+  <link rel="stylesheet" href="common.css">
+  <script src="api.js" defer></script>
+  <script src="shared.js" defer></script>
+  <script src="admin.js" defer></script>
+</head>
+<body>
+  <header><div class="shell"><p class="eyebrow">平沼マーチングバンド · 管理者</p><h1>毎月の運営</h1></div></header>
+  <main class="shell">
+    <p id="message" role="status" aria-live="polite">読み込み中です…</p>
+    <section id="connection" class="card" hidden>
+      <h2>アプリの接続設定</h2>
+      <p>管理者から案内されたGAS Web AppのURLを設定してください。管理者の招待URLから開くと接続できます。</p>
+      <label>GAS Web App URL<input id="api-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></label>
+      <button id="connect" type="button" class="primary">接続する</button>
+    </section>
+    <fieldset id="workspace" hidden>
+      <legend class="sr-only">月間運営</legend>
+      <div class="toolbar"><strong id="month-title"></strong><span id="save-state"></span><button id="save" class="primary" type="button">変更を保存</button><button id="reload" type="button">再読み込み</button><button id="forget" type="button">この端末の認証を解除</button></div>
+      <nav id="tabs" aria-label="管理画面" class="tabs"></nav>
+      <section id="panel" aria-live="off"></section>
+    </fieldset>
+  </main>
+</body>
+</html>

@@ -27,13 +27,18 @@ function doGet(e) {
 function doPost(e) {
   try {
     const request = parsePostRequest_(e);
-    return jsonResponse_(handleWrite_(request));
+    return jsonResponse_(['admin_bootstrap', 'teacher_bootstrap', 'parent_bootstrap', 'parent_card'].indexOf(request.action) >= 0 ? handleRead_(request) : handleWrite_(request));
   } catch (error) {
     return jsonResponse_({ ok: false, error: apiErrorCode_(error), message: error.message });
   }
 }
 
 function handleRead_(request) {
+  // 公開予定と当番の読み取り途中に下書き保存が割り込まないようにする。
+  return withWriteLock_(function() { return readAuthorized_(request); });
+}
+
+function readAuthorized_(request) {
   const auth = authorize_(request);
   switch (request.action) {
     case 'parent_bootstrap':
@@ -63,6 +68,8 @@ function handleWrite_(request) {
       requireRole_(auth, 'parent');
       return { ok: true, data: saveParentMonth_(auth, request) };
     case 'admin_create_month':
+    case 'admin_save_month':
+    case 'admin_delete_session':
     case 'admin_save_sessions':
     case 'admin_save_selfpractice':
     case 'admin_save_duty_assignments':
@@ -106,7 +113,9 @@ function parentBootstrap_(auth) {
     attendance: ownAttendance,
     dutyOffers: ownDutyOffers,
     attendanceCounts: attendanceCounts_(sessions),
-    dutyAssignments: ownDutyAssignments_(sessions, guardianIds)
+    dutyAssignments: publicDutyAssignments_(sessions),
+    places: readTable_('m_places'),
+    teachers: publicTeachers_()
   };
 }
 
@@ -127,7 +136,7 @@ function parentCard_(auth, sessionId) {
 function teacherBootstrap_(auth) {
   const months = latestRows_(readTable_('months'), function(row) { return row['月ID']; });
   const monthMap = indexBy_(months, '月ID');
-  const sessions = latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; }).filter(function(row) {
+  const sessions = activeSessions_().filter(function(row) {
     return !!monthMap[row['月ID']];
   });
   const availability = latestRows_(readTable_('teacher_availability'), function(row) {
@@ -152,13 +161,14 @@ function adminBootstrap_() {
   };
   return {
     masters: masters,
+    shared: sharedSchedule_(),
     months: latestRows_(readTable_('months'), function(row) { return row['月ID']; }),
-    sessions: latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; }),
+    sessions: activeSessions_(),
     selfPractice: latestRows_(readTable_('session_selfpractice'), function(row) { return row['予定ID']; }),
     teacherAvailability: latestRows_(readTable_('teacher_availability'), function(row) { return row['先生ID'] + '|' + row['予定ID'] + '|' + row['枠']; }),
     attendance: latestRows_(readTable_('attendance'), function(row) { return row['子どもID'] + '|' + row['予定ID']; }),
     dutyOffers: latestRows_(readTable_('duty_offers'), function(row) { return row['保護者ID'] + '|' + row['予定ID']; }),
-    dutyAssignments: latestRows_(readTable_('duty_assignments'), function(row) { return row['予定ID'] + '|' + row['役割'] + '|' + row['保護者ID'] + '|' + row['区分']; }),
+    dutyAssignments: dutyAssignments_(),
     events: latestRows_(readTable_('events'), function(row) { return row['予定ID']; }),
     timelineItems: readTable_('timeline_items')
   };
@@ -167,7 +177,7 @@ function adminBootstrap_() {
 function saveTeacherAvailability_(auth, request) {
   const rows = Array.isArray(request.records) ? request.records : [];
   if (!rows.length) throw apiError_(API_ERROR.INVALID_REQUEST, '可否の入力がありません。');
-  const sessions = indexBy_(latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; }), '予定ID');
+  const sessions = indexBy_(activeSessions_(), '予定ID');
   const monthMap = indexBy_(latestRows_(readTable_('months'), function(row) { return row['月ID']; }), '月ID');
   const teacherId = auth.teacher['先生ID'];
   const records = rows.map(function(row) {
@@ -192,7 +202,7 @@ function saveParentMonth_(auth, request) {
   const householdId = auth.household['家庭ID'];
   const memberMap = indexBy_(readTable_('m_members').filter(function(row) { return row['家庭ID'] === householdId; }), '子どもID');
   const guardianMap = indexBy_(readTable_('m_guardians').filter(function(row) { return row['家庭ID'] === householdId; }), '保護者ID');
-  const sessions = indexBy_(latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; }), '予定ID');
+  const sessions = indexBy_(activeSessions_(), '予定ID');
   const months = indexBy_(latestRows_(readTable_('months'), function(row) { return row['月ID']; }), '月ID');
   const fallbackGuardianId = Object.keys(guardianMap)[0] || '';
   const attendance = attendanceRows.map(function(row) {
@@ -220,12 +230,16 @@ function saveAdmin_(request) {
   switch (request.action) {
     case 'admin_create_month':
       return adminCreateMonth_(request);
+    case 'admin_save_month':
+      return adminSaveMonth_(request);
+    case 'admin_delete_session':
+      return adminDeleteSession_(request.sessionId);
     case 'admin_save_sessions':
       return adminSaveSessions_(request.records || []);
     case 'admin_save_selfpractice':
-      return adminAppend_(request.records || [], 'session_selfpractice', ['予定ID']);
+      return adminSaveSelfPractice_(request.records || []);
     case 'admin_save_duty_assignments':
-      return adminAppend_(request.records || [], 'duty_assignments', ['予定ID', '役割', '保護者ID', '区分']);
+      return adminSaveDutyAssignments_(request.records || []);
     case 'admin_save_event':
       return adminAppend_(request.records || [], 'events', ['予定ID', '本番名']);
     case 'admin_save_timeline_items':
@@ -245,7 +259,7 @@ function saveAdmin_(request) {
  */
 function adminSaveTeacherAvailability_(records) {
   if (!Array.isArray(records) || !records.length) throw apiError_(API_ERROR.INVALID_REQUEST, '可否の入力がありません。');
-  const sessions = indexBy_(latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; }), '予定ID');
+  const sessions = indexBy_(activeSessions_(), '予定ID');
   const teachers = indexBy_(readTable_('m_teachers'), '先生ID');
   const rows = records.map(function(row) {
     const session = sessions[row.sessionId];
@@ -263,23 +277,24 @@ function adminSaveTeacherAvailability_(records) {
 }
 
 function adminCreateMonth_(request) {
-  const monthId = String(request.monthId || '');
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(monthId)) throw apiError_(API_ERROR.INVALID_REQUEST, '月IDは YYYY-MM で指定します。');
-  const existing = latestRows_(readTable_('months'), function(row) { return row['月ID']; });
-  if (indexBy_(existing, '月ID')[monthId]) throw apiError_(API_ERROR.INVALID_REQUEST, '対象月は既に存在します。');
-  const sessions = createSaturdaySessions_(monthId, request.copyFromMonthId || '');
-  withWriteLock_(function() {
-    appendObjects_('months', [{ '月ID': monthId, '状態': '下書き', '先生入力締切': request.teacherDeadline || '', '保護者入力締切': request.parentDeadline || '' }]);
+  return withWriteLock_(function() {
+    const monthId = validMonthId_(request.monthId);
+    const existing = latestRows_(readTable_('months'), function(row) { return row['月ID']; });
+    if (indexBy_(existing, '月ID')[monthId]) throw apiError_(API_ERROR.INVALID_REQUEST, '対象月は既に存在します。');
+    const sessions = createSaturdaySessions_(monthId, request.copyFromMonthId || '');
+    validateDeadline_(request.teacherDeadline); validateDeadline_(request.parentDeadline);
+    ensureSessionsSchema_();
     appendObjects_('sessions', sessions);
+    appendObjects_('months', [{ '月ID': monthId, '状態': '下書き', '先生入力締切': request.teacherDeadline || '', '保護者入力締切': request.parentDeadline || '' }]);
+    return { monthId: monthId, sessionsCreated: sessions.length };
   });
-  return { monthId: monthId, sessionsCreated: sessions.length };
 }
 
 function createSaturdaySessions_(monthId, copyFromMonthId) {
   const parts = monthId.split('-');
   const year = Number(parts[0]);
   const month = Number(parts[1]);
-  const prior = latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; }).filter(function(row) { return row['月ID'] === copyFromMonthId; })[0] || {};
+  const prior = activeSessions_().filter(function(row) { return row['月ID'] === copyFromMonthId; })[0] || {};
   const defaults = {
     '集合': prior['集合'] || '09:30', '開始': prior['開始'] || '10:00', '終了': prior['終了'] || '15:00', '解散': prior['解散'] || '15:30', '場所ID': prior['場所ID'] || 'P001'
   };
@@ -289,18 +304,24 @@ function createSaturdaySessions_(monthId, copyFromMonthId) {
     if (date.getMonth() !== month - 1) break;
     if (date.getDay() !== 6) continue;
     const isoDate = Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-    records.push({ '予定ID': 'S' + isoDate.replace(/-/g, ''), '月ID': monthId, '日付': isoDate, '種別': '通常練習', 'staffing': '未定', '担当先生ID': '', '集合': defaults['集合'], '開始': defaults['開始'], '終了': defaults['終了'], '解散': defaults['解散'], '場所ID': defaults['場所ID'], '確定状態': '下書き', '備考': '' });
+    records.push({ '予定ID': 'S' + isoDate.replace(/-/g, ''), '月ID': monthId, '日付': isoDate, '種別': '通常練習', 'staffing_am': '未定', '担当先生ID_am': '', 'staffing_pm': '未定', '担当先生ID_pm': '', '集合': defaults['集合'], '開始': defaults['開始'], '終了': defaults['終了'], '解散': defaults['解散'], '場所ID': defaults['場所ID'], '確定状態': '下書き', '備考': '' });
   }
   return records;
 }
 
 function adminSaveSessions_(records) {
-  if (!Array.isArray(records) || !records.length) throw apiError_(API_ERROR.INVALID_REQUEST, '予定がありません。');
-  const allowedStaffing = ['未定', '先生あり', '自主練'];
-  records.forEach(function(record) {
-    if (!record['予定ID'] || allowedStaffing.indexOf(record.staffing || record['staffing']) === -1) throw apiError_(API_ERROR.INVALID_REQUEST, '予定IDまたは staffing が不正です。');
+  return withWriteLock_(function() {
+    requireRecords_(records);
+    const existing = indexBy_(activeSessions_(), '予定ID');
+    const rows = records.map(function(record) {
+      const row = cleanSession_(record);
+      if (existing[row['予定ID']] && existing[row['予定ID']]['月ID'] !== row['月ID']) throw apiError_(API_ERROR.INVALID_REQUEST, '予定の所属月は変更できません。');
+      row['確定状態'] = '下書き'; // 公開は検証付きの専用APIだけで行う。
+      return row;
+    });
+    appendObjects_('sessions', rows);
+    return { saved: rows.length };
   });
-  return adminAppend_(records, 'sessions', ['予定ID', '月ID', '日付', '種別', 'staffing']);
 }
 
 function adminAppend_(records, sheetName, requiredKeys) {
@@ -313,33 +334,34 @@ function adminAppend_(records, sheetName, requiredKeys) {
 }
 
 function adminPublishMonth_(monthId) {
-  if (!monthId) throw apiError_(API_ERROR.INVALID_REQUEST, '月IDが必要です。');
-  const months = indexBy_(latestRows_(readTable_('months'), function(row) { return row['月ID']; }), '月ID');
-  const month = months[monthId];
-  if (!month) throw apiError_(API_ERROR.INVALID_REQUEST, '対象月が見つかりません。');
-  const sessions = latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; }).filter(function(row) { return row['月ID'] === monthId; });
-  const missing = selfPracticeMissingItems_(sessions);
-  if (missing.length) throw apiError_(API_ERROR.SELF_PRACTICE_INCOMPLETE, '自主練の公開条件が不足しています: ' + missing.join(' / '));
-  withWriteLock_(function() {
-    const publishedMonth = copyObject_(month); publishedMonth['状態'] = '公開'; appendObjects_('months', [publishedMonth]);
+  return withWriteLock_(function() {
+    const month = indexBy_(latestRows_(readTable_('months'), function(row) { return row['月ID']; }), '月ID')[monthId];
+    if (!month) throw apiError_(API_ERROR.INVALID_REQUEST, '対象月が見つかりません。');
+    const sessions = activeSessions_().filter(function(row) { return row['月ID'] === monthId; });
+    if (!sessions.length) throw apiError_(API_ERROR.INVALID_REQUEST, '公開する予定がありません。');
+    sessions.forEach(cleanSession_);
+    const missing = selfPracticeMissingItems_(sessions);
+    if (missing.length) throw apiError_(API_ERROR.SELF_PRACTICE_INCOMPLETE, '自主練の公開条件が不足しています: ' + missing.join(' / '));
     appendObjects_('sessions', sessions.map(function(session) { const row = copyObject_(session); row['確定状態'] = '公開'; return row; }));
+    const publishedMonth = copyObject_(month); publishedMonth['状態'] = '公開'; appendObjects_('months', [publishedMonth]);
+    return { monthId: monthId, publishedSessions: sessions.length };
   });
-  return { monthId: monthId, publishedSessions: sessions.length };
 }
 
 function selfPracticeMissingItems_(sessions) {
   const selfPractice = indexBy_(latestRows_(readTable_('session_selfpractice'), function(row) { return row['予定ID']; }), '予定ID');
-  const assignments = latestRows_(readTable_('duty_assignments'), function(row) { return row['予定ID'] + '|' + row['役割'] + '|' + row['保護者ID'] + '|' + row['区分']; });
+  const assignments = dutyAssignments_();
   const missing = [];
-  sessions.filter(function(session) { return session['staffing'] === '自主練'; }).forEach(function(session) {
+  sessions.filter(function(session) { return session.staffing_am === '自主練' || (session['種別'] !== '本番' && session.staffing_pm === '自主練'); }).forEach(function(session) {
     const checklist = selfPractice[session['予定ID']] || {};
-    const fields = [['鍵の担当', '鍵の担当'], ['中止判断者', '中止判断者'], ['緊急連絡先', '緊急連絡先'], ['施設使用申請済', '施設使用申請済']];
+    const fields = [['鍵の担当', '鍵の担当'], ['中止判断者', '中止判断者'], ['緊急連絡先', '緊急連絡先']];
+    const guardians = indexBy_(readTable_('m_guardians').filter(function(row) { return asBoolean_(row['在籍']); }), '保護者ID');
     fields.forEach(function(field) {
       const value = checklist[field[0]];
-      if (!value || (field[0] === '施設使用申請済' && !asBoolean_(value))) missing.push(session['日付'] + ' ' + field[1]);
+      if (!String(value || '').trim() || (field[0] !== '緊急連絡先' && !guardians[value])) missing.push(session['日付'] + ' ' + field[1]);
     });
     const guardianIds = {};
-    assignments.filter(function(row) { return row['予定ID'] === session['予定ID']; }).forEach(function(row) { guardianIds[row['保護者ID']] = true; });
+    assignments.filter(function(row) { return row['予定ID'] === session['予定ID']; }).forEach(function(row) { if (guardians[row['保護者ID']]) guardianIds[row['保護者ID']] = true; });
     if (Object.keys(guardianIds).length < 2) missing.push(session['日付'] + ' 当番2名');
   });
   return missing;
@@ -351,7 +373,7 @@ function publishedMonths_() {
 
 function publishedSessions_() {
   const monthMap = indexBy_(publishedMonths_(), '月ID');
-  return latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; }).filter(function(row) {
+  return activeSessions_().filter(function(row) {
     return !!monthMap[row['月ID']] && row['確定状態'] === '公開';
   });
 }
@@ -369,10 +391,11 @@ function attendanceCounts_(sessions) {
   return counts;
 }
 
-function ownDutyAssignments_(sessions, guardianIds) {
-  const allowedSessions = indexBy_(sessions, '予定ID');
-  return latestRows_(readTable_('duty_assignments'), function(row) { return row['予定ID'] + '|' + row['役割'] + '|' + row['保護者ID'] + '|' + row['区分']; }).filter(function(row) {
-    return !!allowedSessions[row['予定ID']] && !!guardianIds[row['保護者ID']];
+function publicDutyAssignments_(sessions) {
+  const allowed = indexBy_(sessions, '予定ID');
+  const guardians = indexBy_(readTable_('m_guardians'), '保護者ID');
+  return dutyAssignments_().filter(function(row) { return !!allowed[row['予定ID']] && !!guardians[row['保護者ID']]; }).map(function(row) {
+    return { '予定ID': row['予定ID'], '役割': row['役割'], '区分': row['区分'], '表示名': guardians[row['保護者ID']]['表示名'] };
   });
 }
 
@@ -398,7 +421,7 @@ function readTable_(sheetName) {
   const headers = values[0].map(String);
   return values.slice(1).filter(function(row) { return row.some(function(cell) { return cell !== ''; }); }).map(function(row) {
     const result = {};
-    headers.forEach(function(header, index) { result[header] = formatCell_(row[index]); });
+    headers.forEach(function(header, index) { result[header] = formatCell_(row[index], header); });
     return result;
   });
 }
@@ -406,8 +429,10 @@ function readTable_(sheetName) {
 function appendObjects_(sheetName, records) {
   const sheet = getDatabase_().getSheetByName(sheetName);
   if (!sheet) throw apiError_(API_ERROR.NOT_CONFIGURED, sheetName + ' がありません。');
+  if (!records.length) return;
+  if (sheetName === 'sessions') ensureSessionsSchema_();
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  const rows = records.map(function(record) { return headers.map(function(header) { return record[header] === undefined ? '' : record[header]; }); });
+  const rows = records.map(function(record) { return headers.map(function(header) { return sheetLiteral_(record[header] === undefined ? '' : record[header]); }); });
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
 }
 
@@ -420,7 +445,7 @@ function getDatabase_() {
 function ensureDeadlineOpen_(month, columnName) {
   if (!month) throw apiError_(API_ERROR.INVALID_REQUEST, '対象月が見つかりません。');
   const deadline = month[columnName];
-  if (deadline && new Date(deadline).getTime() < Date.now()) throw apiError_(API_ERROR.DEADLINE_CLOSED, columnName + 'を過ぎています。');
+  if (deadline && new Date(/^\d{4}-\d{2}-\d{2}$/.test(deadline) ? deadline + 'T23:59:59+09:00' : deadline).getTime() < Date.now()) throw apiError_(API_ERROR.DEADLINE_CLOSED, columnName + 'を過ぎています。');
 }
 
 function withWriteLock_(callback) {
@@ -470,7 +495,9 @@ function asBoolean_(value) {
   return value === true || String(value).toLowerCase() === 'true' || String(value) === '1' || String(value) === '○';
 }
 
-function formatCell_(value) {
+function formatCell_(value, header) {
+  if (value instanceof Date && ['日付', '先生入力締切', '保護者入力締切'].indexOf(header) >= 0) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (value instanceof Date && ['集合', '開始', '終了', '解散', '時刻'].indexOf(header) >= 0) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'HH:mm');
   if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
   return value;
 }
@@ -496,4 +523,129 @@ function apiErrorCode_(error) {
 
 function jsonResponse_(body) {
   return ContentService.createTextOutput(JSON.stringify(body)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function activeSessions_() {
+  return latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; }).filter(function(row) { return row['確定状態'] !== '削除'; }).map(function(row) {
+    return withoutKeys_(row, ['staffing', '担当先生ID']);
+  });
+}
+
+// 予定×役割×主副を割当枠とする。保護者IDが空の最新行は割当解除。
+function dutyAssignments_() {
+  return latestRows_(readTable_('duty_assignments'), function(row) { return row['予定ID'] + '|' + row['役割'] + '|' + row['区分']; }).filter(function(row) { return !!row['保護者ID']; });
+}
+
+function publicTeachers_() {
+  return readTable_('m_teachers').map(function(row) { return { '先生ID': row['先生ID'], '氏名': row['氏名'] }; });
+}
+
+function sharedSchedule_() {
+  const sessions = publishedSessions_();
+  return { sessions: sessions, dutyAssignments: publicDutyAssignments_(sessions), attendanceCounts: attendanceCounts_(sessions), places: readTable_('m_places'), teachers: publicTeachers_() };
+}
+
+function requireRecords_(records) {
+  if (!Array.isArray(records) || !records.length) throw apiError_(API_ERROR.INVALID_REQUEST, '保存する行がありません。');
+}
+
+function validMonthId_(value) {
+  const month = String(value || '');
+  if (!/^(20\d{2})-(0[1-9]|1[0-2])$/.test(month)) throw apiError_(API_ERROR.INVALID_REQUEST, '年月は2000〜2099年で指定します。');
+  return month;
+}
+
+function validateDeadline_(value) {
+  if (value && !validDate_(value)) throw apiError_(API_ERROR.INVALID_REQUEST, '締切日が不正です。');
+}
+
+function validDate_(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value)) && !isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+
+function cleanSession_(record) {
+  const row = {};
+  BAND_DB_SCHEMA.sessions.forEach(function(key) { row[key] = String(record[key] === undefined ? '' : record[key]).trim(); });
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(row['予定ID'])) throw apiError_(API_ERROR.INVALID_REQUEST, '予定IDが不正です。');
+  validMonthId_(row['月ID']);
+  if (!indexBy_(latestRows_(readTable_('months'), function(item) { return item['月ID']; }), '月ID')[row['月ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '対象月がありません。');
+  if (!validDate_(row['日付']) || row['日付'].slice(0, 7) !== row['月ID']) throw apiError_(API_ERROR.INVALID_REQUEST, '日付は対象月内で指定します。');
+  if (['通常練習', '自主練', '本番', 'その他'].indexOf(row['種別']) < 0) throw apiError_(API_ERROR.INVALID_REQUEST, '種別が不正です。');
+  const teachers = indexBy_(readTable_('m_teachers').filter(function(item) { return asBoolean_(item['在籍']); }), '先生ID');
+  ['am', 'pm'].forEach(function(slot) {
+    const staffing = 'staffing_' + slot; const teacher = '担当先生ID_' + slot;
+    if (slot === 'pm' && row['種別'] === '本番') { row[staffing] = ''; row[teacher] = ''; return; }
+    if (['未定', '先生あり', '自主練'].indexOf(row[staffing]) < 0) throw apiError_(API_ERROR.INVALID_REQUEST, '午前・午後の指導体制を指定してください。');
+    if (row[staffing] === '先生あり' && !teachers[row[teacher]]) throw apiError_(API_ERROR.INVALID_REQUEST, '担当先生を選んでください。');
+    if (row[staffing] !== '先生あり') row[teacher] = '';
+  });
+  const times = ['集合', '開始', '終了', '解散'].map(function(key) { return row[key]; });
+  times.forEach(function(time) { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw apiError_(API_ERROR.INVALID_REQUEST, '集合・開始・終了・解散時刻を指定してください。'); });
+  if (times.join('|') !== times.slice().sort().join('|')) throw apiError_(API_ERROR.INVALID_REQUEST, '集合→開始→終了→解散の順に指定してください。');
+  if (!indexBy_(readTable_('m_places'), '場所ID')[row['場所ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '場所を選んでください。');
+  return row;
+}
+
+function ensureSessionsSchema_() {
+  const sheet = getDatabase_().getSheetByName('sessions');
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (BAND_DB_SCHEMA.sessions.some(function(key) { return headers.indexOf(key) < 0; })) throw apiError_(API_ERROR.NOT_CONFIGURED, 'GASで migrateSessionsSchema() を実行してください。');
+}
+
+function adminSaveMonth_(request) {
+  return withWriteLock_(function() {
+    const month = indexBy_(latestRows_(readTable_('months'), function(row) { return row['月ID']; }), '月ID')[request.monthId];
+    if (!month) throw apiError_(API_ERROR.INVALID_REQUEST, '対象月がありません。');
+    validateDeadline_(request.teacherDeadline); validateDeadline_(request.parentDeadline);
+    const row = copyObject_(month); row['先生入力締切'] = request.teacherDeadline || ''; row['保護者入力締切'] = request.parentDeadline || '';
+    appendObjects_('months', [row]); return { saved: 1 };
+  });
+}
+
+function adminDeleteSession_(sessionId) {
+  return withWriteLock_(function() {
+    const row = indexBy_(activeSessions_(), '予定ID')[sessionId];
+    if (!row) throw apiError_(API_ERROR.INVALID_REQUEST, '予定がありません。');
+    row['確定状態'] = '削除'; appendObjects_('sessions', [row]); return { saved: 1 };
+  });
+}
+
+function unpublishSessions_(ids) {
+  const rows = activeSessions_().filter(function(row) { return ids.indexOf(row['予定ID']) >= 0 && row['確定状態'] === '公開'; }).map(function(row) { row['確定状態'] = '下書き'; return row; });
+  if (rows.length) appendObjects_('sessions', rows);
+}
+
+function adminSaveSelfPractice_(records) {
+  return withWriteLock_(function() {
+    requireRecords_(records);
+    const sessions = indexBy_(activeSessions_(), '予定ID');
+    const guardians = indexBy_(readTable_('m_guardians').filter(function(row) { return asBoolean_(row['在籍']); }), '保護者ID');
+    const rows = records.map(function(record) {
+      if (!sessions[record['予定ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '予定がありません。');
+      ['鍵の担当', '中止判断者'].forEach(function(key) { if (record[key] && !guardians[record[key]]) throw apiError_(API_ERROR.INVALID_REQUEST, key + 'を在籍保護者から選んでください。'); });
+      const row = copyObject_(record); row['施設使用申請済'] = asBoolean_(row['施設使用申請済']); return row;
+    });
+    unpublishSessions_(rows.map(function(row) { return row['予定ID']; }));
+    appendObjects_('session_selfpractice', rows); return { saved: rows.length };
+  });
+}
+
+function adminSaveDutyAssignments_(records) {
+  return withWriteLock_(function() {
+    requireRecords_(records);
+    const sessions = indexBy_(activeSessions_(), '予定ID');
+    const guardians = indexBy_(readTable_('m_guardians').filter(function(row) { return asBoolean_(row['在籍']); }), '保護者ID');
+    const rows = records.map(function(record) {
+      if (!sessions[record['予定ID']] || !String(record['役割'] || '').trim() || ['主', '副'].indexOf(record['区分']) < 0) throw apiError_(API_ERROR.INVALID_REQUEST, '当番の予定・役割・区分が不正です。');
+      if (record['保護者ID'] && !guardians[record['保護者ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '保護者が不正です。');
+      return { '予定ID': record['予定ID'], '役割': String(record['役割']).trim(), '区分': record['区分'], '保護者ID': record['保護者ID'] || '', '更新時刻': new Date() };
+    });
+    unpublishSessions_(rows.map(function(row) { return row['予定ID']; }));
+    appendObjects_('duty_assignments', rows); return { saved: rows.length };
+  });
+}
+
+// Sheetsが自由入力を数式として実行しないよう文字列化する。
+function sheetLiteral_(value) {
+  return typeof value === 'string' && /^[=+@-]/.test(value) ? "'" + value : value;
 }
