@@ -43,7 +43,7 @@
 - `admin_bootstrap.shared` は同じ公開スナップショットです。`shared.js` の `BandShared.render(container, data, monthId)` は将来の保護者画面でも使用できます。
 - 管理画面は `admin_create_month / admin_save_month / admin_save_sessions / admin_delete_session / admin_save_teacher_availability / admin_save_selfpractice / admin_save_duty_assignments / admin_publish_month` を使用します。
 - 先生画面は `teacher.html?t=<先生トークン>` で対象月の候補を一括表示し、練習なし・自主練・本番の枠を除いて ○／× を送信します。「未入力に戻す」で誤入力を取り消せます。先生の入力締切は設けず、管理者が予定を確定するまで修正できます。
-- 保護者画面は `parent.html?k=<家庭トークン>` で、兄弟姉妹全員の月間出席と、保護者ごとの当番可否を一括入力します。練習なしの枠は表示も送信もしません。入力画面には下書き予定も表示しますが、共有タブには公開済み予定だけを表示します。
+- 保護者画面は `parent.html?k=<家庭トークン>` で、兄弟姉妹全員の月間出席と、家庭としての当番可否を一括入力します。保護者名の選択は不要です。練習なしの枠は表示も送信もしません。入力画面には下書き予定も表示しますが、共有タブには公開済み予定だけを表示します。
 - 読み取りもPOSTのJSON本文でトークンを送信できます。GET互換も維持しています。書き込み・公開の検証と追記、公開データの読み取りは同じスクリプトロックで排他します。
 
 ## ローカル検証

@@ -27,7 +27,7 @@
   function dateLabel(value) { const date = new Date(`${value}T00:00:00+09:00`); return `${date.getMonth() + 1}月${date.getDate()}日（${['日','月','火','水','木','金','土'][date.getDay()]}）`; }
   function placeName(session) { return (state.data.places || []).find(place => place['場所ID'] === session['場所ID'])?.['名称'] || '場所未設定'; }
   function completeAttendance(memberId, session) { const row = attendanceValue(memberId, session['予定ID']); return slotList(session).filter(([slot]) => isOpen(session, slot)).every(([slot]) => typeof row[slot === 'am' ? 'morning' : 'afternoon'] === 'boolean'); }
-  function allComplete() { return inputSessions().every(session => members().every(member => completeAttendance(member['子どもID'], session))) && inputSessions().every(session => guardians().every(guardian => typeof offerValue(guardian['保護者ID'], session['予定ID'])['available'] === 'boolean')); }
+  function allComplete() { return inputSessions().every(session => members().every(member => completeAttendance(member['子どもID'], session))) && inputSessions().every(session => typeof offerValue(state.guardianId, session['予定ID'])['available'] === 'boolean'); }
   function render() {
     $('tabs').replaceChildren(...tabs.map(([id, label]) => button(label, () => { state.tab = id; render(); }, state.tab === id)));
     const panel = $('panel'); panel.replaceChildren();
@@ -36,15 +36,14 @@
   function renderInput(panel) {
     const context = el('section', undefined, 'card parent-context');
     context.append(el('p', monthLabel(state.monthId), 'eyebrow'), el('h2', `${state.data.household?.['家庭名'] || 'ご家庭'}の入力`));
-    context.append(pills(guardians().map(g => [g['保護者ID'], `${g['表示名']}が入力`]), state.guardianId, id => { state.guardianId = id; try { localStorage.setItem('hiranuma.parent.guardian', id); } catch {} render(); }, '入力する保護者'));
-    context.append(el('p', '登録済みのお子さまを同じ画面で入力できます。', 'muted')); panel.append(context);
+    context.append(el('p', '登録済みのお子さまを同じ画面で入力できます。当番可否はご家庭で1回入力します。', 'muted')); panel.append(context);
     panel.append(pills(inputMonths().map(m => [monthKey(m['月ID']), monthLabel(m['月ID'])]), state.monthId, id => { state.monthId = id; state.openSessions.clear(); render(); }, '対象月'));
     const overview = el('section', undefined, 'card month-overview');
     for (const session of inputSessions()) {
       const answered = members().filter(member => completeAttendance(member['子どもID'], session)).length;
-      const duty = guardians().filter(guardian => typeof offerValue(guardian['保護者ID'], session['予定ID']).available === 'boolean').length;
-      const status = answered === members().length && duty === guardians().length ? '入力済み' : '未入力あり';
-      const row = el('div', undefined, 'overview-row'); row.append(el('strong', dateLabel(session['日付']).replace('月', '/').replace('日（', '（')), el('span', `${members().length ? `出席 ${answered}/${members().length}人` : '子ども未登録'}`), el('span', `当番 ${duty}/${guardians().length}人`, 'muted'), el('span', status, 'badge')); overview.append(row);
+      const duty = typeof offerValue(state.guardianId, session['予定ID']).available === 'boolean' ? 1 : 0;
+      const status = answered === members().length && duty ? '入力済み' : '未入力あり';
+      const row = el('div', undefined, 'overview-row'); row.append(el('strong', dateLabel(session['日付']).replace('月', '/').replace('日（', '（')), el('span', `${members().length ? `出席 ${answered}/${members().length}人` : '子ども未登録'}`), el('span', `当番 ${duty}/1`, 'muted'), el('span', status, 'badge')); overview.append(row);
     }
     panel.append(overview, el('p', '日付を開くと、兄弟それぞれの出席と当番可否を変更できます。', 'muted'));
     if (!inputSessions().length) { panel.append(el('p', 'この月の入力対象予定はありません。', 'muted')); return; }
@@ -70,8 +69,8 @@
     note.addEventListener('input', () => markAttendance(member['子どもID'], session['予定ID'], { '連絡事項': note.value })); wrap.append(note); return wrap;
   }
   function dutyEditor(session) {
-    const wrap = el('section', undefined, 'duty'); const guardian = guardians().find(g => g['保護者ID'] === state.guardianId);
-    wrap.append(el('h3', `保護者当番：${guardian?.['表示名'] || '保護者'}`), el('p', '当日の担当は管理者が調整して確定します。', 'muted'));
+    const wrap = el('section', undefined, 'duty');
+    wrap.append(el('h3', '保護者当番'), el('p', '当日の担当は管理者が調整して確定します。', 'muted'));
     const value = offerValue(state.guardianId, session['予定ID']).available;
     wrap.append(pills([['', '未入力'], ['yes', '当番に入れる'], ['no', '入れない']], value === true ? 'yes' : value === false ? 'no' : '', id => { markOffer(state.guardianId, session['予定ID'], { available: id === 'yes' ? true : id === 'no' ? false : undefined }); state.openSessions.add(session['予定ID']); render(); }, `${dateLabel(session['日付'])}の当番可否`));
     const note = document.createElement('input'); note.type = 'text'; note.placeholder = '当番に関するメモ（任意）'; note.value = offerValue(state.guardianId, session['予定ID'])['メモ'] || '';
@@ -84,15 +83,14 @@
     state.busy = true; render(); message('送信中です…');
     try {
       const attendance = inputSessions().flatMap(session => members().map(member => { const row = attendanceValue(member['子どもID'], session['予定ID']); return { memberId: member['子どもID'], sessionId: session['予定ID'], morning: Boolean(row.morning), afternoon: Boolean(row.afternoon), note: row['連絡事項'] || '', guardianId: state.guardianId }; }));
-      const dutyOffers = inputSessions().flatMap(session => guardians().map(guardian => { const row = offerValue(guardian['保護者ID'], session['予定ID']); return { guardianId: guardian['保護者ID'], sessionId: session['予定ID'], available: Boolean(row.available), note: row['メモ'] || '' }; }));
+      const dutyOffers = inputSessions().map(session => { const row = offerValue(state.guardianId, session['予定ID']); return { guardianId: state.guardianId, sessionId: session['予定ID'], available: Boolean(row.available), note: row['メモ'] || '' }; });
       await api.request('save_parent_month', { attendance, dutyOffers }); await load(); message('この月の入力を送信しました。');
     } catch (error) { message(error.message || '送信できませんでした。', true); } finally { state.busy = false; render(); }
   }
   async function load() {
     state.data = await api.request('parent_bootstrap'); state.attendance.clear(); state.offers.clear();
     const firstMonth = inputMonths()[0]; state.monthId = state.monthId && inputMonths().some(m => monthKey(m['月ID']) === state.monthId) ? state.monthId : monthKey(firstMonth?.['月ID']);
-    const saved = (() => { try { return localStorage.getItem('hiranuma.parent.guardian'); } catch { return ''; } })();
-    state.guardianId = guardians().some(g => g['保護者ID'] === saved) ? saved : guardians()[0]?.['保護者ID'] || '';
+    state.guardianId = guardians()[0]?.['保護者ID'] || '';
     $('connection').hidden = true; $('workspace').hidden = false; render();
   }
   async function connect() { try { api.configure($('api-url').value.trim()); await load(); message('接続しました。'); } catch (error) { message(error.message || '接続できませんでした。', true); } }

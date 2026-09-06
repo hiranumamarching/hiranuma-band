@@ -223,9 +223,9 @@ function saveParentMonth_(auth, request) {
   });
   const offers = dutyRows.map(function(row) {
     const session = sessions[row.sessionId];
-    if (!guardianMap[row.guardianId] || !session) throw apiError_(API_ERROR.FORBIDDEN, 'この家庭では送信できない保護者または予定です。');
+    if (!session || !fallbackGuardianId || (row.guardianId && row.guardianId !== fallbackGuardianId)) throw apiError_(API_ERROR.FORBIDDEN, 'この家庭では送信できない当番可否です。');
     ensureDeadlineOpen_(months[session['月ID']], '保護者入力締切');
-    return { '保護者ID': row.guardianId, '予定ID': row.sessionId, '可否': asBoolean_(row.available), 'メモ': String(row.note || ''), '送信時刻': new Date() };
+    return { '保護者ID': fallbackGuardianId, '予定ID': row.sessionId, '可否': asBoolean_(row.available), 'メモ': String(row.note || ''), '送信時刻': new Date() };
   });
   withWriteLock_(function() {
     if (attendance.length) appendObjects_('attendance', attendance);

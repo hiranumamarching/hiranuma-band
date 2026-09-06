@@ -71,6 +71,9 @@ test('保護者入力は下書き予定を読めるが、実施しない枠へ�
   const response = h.post({ action: 'save_parent_month', k: household['招待トークン'], attendance: [{ memberId: 'M001', sessionId: session['予定ID'], morning: false, afternoon: true }] });
   assert.equal(response.ok, false); assert.match(response.message, /実施しない枠/);
   assert(h.post({ action: 'save_parent_month', k: household['招待トークン'], attendance: [{ memberId: 'M001', sessionId: session['予定ID'], morning: true, afternoon: false }] }).ok);
+  const guardians = h.context.readTable_('m_guardians').filter(row => row['家庭ID'] === 'H001');
+  const otherGuardian = h.post({ action: 'save_parent_month', k: household['招待トークン'], dutyOffers: [{ guardianId: guardians[1]['保護者ID'], sessionId: session['予定ID'], available: true }] });
+  assert.equal(otherGuardian.ok, false);
 });
 
 for (const afternoon of [true, false]) test(`${afternoon ? '午後' : '午前'}だけ自主練でも4条件必須・同じ保護者は1名・施設申請は任意`, () => {
