@@ -18,9 +18,16 @@
   function message(text, error = false) { $('message').textContent = text; $('message').className = error ? 'error' : ''; $('message').setAttribute('role', error ? 'alert' : 'status'); }
   function slotList(session) { return session['種別'] === '本番' ? [['am', '終日']] : [['am', '午前'], ['pm', '午後']]; }
   function isOpen(session, slot) { return session['種別'] === '本番' ? slot === 'am' : session[`実施有無_${slot}`] !== 'なし'; }
-  function existingAttendance(memberId, sessionId) { return (state.data.attendance || []).find(row => row['子どもID'] === memberId && row['予定ID'] === sessionId) || {}; }
+  function existingAttendance(memberId, sessionId) {
+    const row = (state.data.attendance || []).find(item => item['子どもID'] === memberId && item['予定ID'] === sessionId);
+    return row ? { morning: bool(row['午前']), afternoon: bool(row['午後']), '連絡事項': row['連絡事項'] || '' } : {};
+  }
   function attendanceValue(memberId, sessionId) { return state.attendance.get(attendanceKey(memberId, sessionId)) || existingAttendance(memberId, sessionId); }
-  function offerValue(guardianId, sessionId) { return state.offers.get(offerKey(guardianId, sessionId)) || (state.data.dutyOffers || []).find(row => row['保護者ID'] === guardianId && row['予定ID'] === sessionId) || {}; }
+  function offerValue(guardianId, sessionId) {
+    const draft = state.offers.get(offerKey(guardianId, sessionId)); if (draft) return draft;
+    const row = (state.data.dutyOffers || []).find(item => item['保護者ID'] === guardianId && item['予定ID'] === sessionId);
+    return row ? { available: bool(row['可否']), 'メモ': row['メモ'] || '' } : {};
+  }
   function markAttendance(memberId, sessionId, patch) { state.attendance.set(attendanceKey(memberId, sessionId), { ...attendanceValue(memberId, sessionId), ...patch }); }
   function markOffer(guardianId, sessionId, patch) { state.offers.set(offerKey(guardianId, sessionId), { ...offerValue(guardianId, sessionId), ...patch }); }
   function inputMonths() { return (state.data?.months || []).filter(m => (state.data?.inputSessions || []).some(s => monthKey(s['月ID']) === monthKey(m['月ID']))).sort((a, b) => monthKey(a['月ID']).localeCompare(monthKey(b['月ID']))); }
