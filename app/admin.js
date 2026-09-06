@@ -3,7 +3,7 @@
   const api = BandAPI.create('a');
   const $ = id => document.getElementById(id);
   const bool = v => v === true || v === 'true' || v === 1 || v === '1' || v === '○';
-  const roles = ['見守り'];
+  const roles = ['当番'];
   const tabs = [['month', '月設定'], ['schedule', '先生・予定'], ['duty', '集計・当番'], ['publish', '公開確認']];
   const dirty = { sessions: new Set(), selfPractice: new Set(), dutyAssignments: new Set(), teacherAvailability: new Set() };
   const today = new Date();
@@ -274,7 +274,7 @@
     for (const d of data.dutyOffers.filter(d => d['予定ID'] === s['予定ID'] && d['メモ'])) { const guardian = data.masters.guardians.find(g => g['保護者ID'] === d['保護者ID']); notes.append(el('p', `${guardian?.['表示名'] || '退籍保護者'}：${d['メモ']}`, 'note')); }
     card.append(notes);
     const allRoles = [...new Set([...roles, ...data.dutyAssignments.filter(d => d['予定ID'] === s['予定ID']).map(d => d['役割'])])];
-    const rolePicker = el('div'); let role = '見守り';
+    const rolePicker = el('div'); let role = '当番';
     const renderRole = () => {
       const addRole = el('div', undefined, 'row'); const roleInput = document.createElement('input'); roleInput.type = 'text'; roleInput.maxLength = 40; roleInput.placeholder = '役割を追加（例：レッスン見守り）';
       addRole.append(roleInput, button('役割を追加', () => {
