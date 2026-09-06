@@ -251,16 +251,16 @@
     const table = el('table'); const head = el('tr'); for (const title of ['家庭', '回答状況', '当番可']) head.append(el('th', title)); const thead = el('thead'); thead.append(head); table.append(thead); const body = el('tbody');
     const monthSessions = sessions();
     for (const household of active('households')) {
-      const members = active('members').filter(m => m['家庭ID'] === household['家庭ID']); const guardians = active('guardians').filter(g => g['家庭ID'] === household['家庭ID']);
-      let answered = 0, offered = 0; const expected = (members.length + guardians.length) * monthSessions.length;
+      const members = active('members').filter(m => m['家庭ID'] === household['家庭ID']); const guardians = active('guardians').filter(g => g['家庭ID'] === household['家庭ID']); const representative = guardians[0];
+      let answered = 0, offered = 0; const expected = (members.length + (representative ? 1 : 0)) * monthSessions.length;
       for (const s of monthSessions) {
         answered += members.filter(m => data.attendance.some(a => a['予定ID'] === s['予定ID'] && a['子どもID'] === m['子どもID'])).length;
-        answered += guardians.filter(g => data.dutyOffers.some(d => d['予定ID'] === s['予定ID'] && d['保護者ID'] === g['保護者ID'])).length;
-        if (guardians.some(g => data.dutyOffers.some(d => d['予定ID'] === s['予定ID'] && d['保護者ID'] === g['保護者ID'] && bool(d['可否'])))) offered++;
+        if (representative && data.dutyOffers.some(d => d['予定ID'] === s['予定ID'] && d['保護者ID'] === representative['保護者ID'])) answered++;
+        if (representative && data.dutyOffers.some(d => d['予定ID'] === s['予定ID'] && d['保護者ID'] === representative['保護者ID'] && bool(d['可否']))) offered++;
       }
       const tr = el('tr'); tr.append(el('td', household['家庭名']), el('td', expected === 0 ? '対象なし' : `${answered === 0 ? '未入力' : answered === expected ? '入力済' : '一部入力'} ${answered}/${expected}`), el('td', `${offered}/${monthSessions.length}日`)); body.append(tr);
     }
-    table.append(body); summary.append(table, el('p', '子ども全員の出席回答と保護者全員の当番可否がそろうと入力済です。当番可は、その家庭から1名以上が「可」の日数です。', 'muted')); panel.append(summary);
+    table.append(body); summary.append(table, el('p', '子ども全員の出席回答と、家庭ごとの当番可否がそろうと入力済です。', 'muted')); panel.append(summary);
     for (const s of monthSessions) panel.append(dutyCard(s));
   }
   function dutyCard(s) {
@@ -277,16 +277,20 @@
     const rolePicker = el('div'); let role = '見守り';
     const renderRole = () => {
       rolePicker.replaceChildren(pills(allRoles.map(r => [r, r]), role, r => { role = r; renderRole(); }, '当番の役割'));
-      for (const division of ['主', '副']) {
-        let assignment = data.dutyAssignments.find(d => d['予定ID'] === s['予定ID'] && d['役割'] === role && d['区分'] === division);
-        const options = active('guardians').map(g => [g['保護者ID'], `${g['表示名']}${available.includes(g) ? '（可）' : '（要確認）'}`]);
-        rolePicker.append(picker(`${division}担当`, options, assignment?.['保護者ID'], value => {
-          if (!assignment) { assignment = { '予定ID': s['予定ID'], '役割': role, '区分': division }; data.dutyAssignments.push(assignment); }
-          assignment['保護者ID'] = value; mark('dutyAssignments', dutyKey(assignment)); renderRole();
-        }));
+      const options = active('guardians').map(g => [g['保護者ID'], `${g['表示名']}${available.includes(g) ? '（可）' : '（要確認）'}`]);
+      const roleAssignments = data.dutyAssignments.filter(d => d['予定ID'] === s['予定ID'] && d['役割'] === role && d['保護者ID']);
+      rolePicker.append(picker('担当を追加', options, '', value => {
+        if (!value || roleAssignments.some(d => d['保護者ID'] === value)) return;
+        const assignment = { '予定ID': s['予定ID'], '役割': role, '区分': `A-${crypto.randomUUID()}`, '保護者ID': value };
+        data.dutyAssignments.push(assignment); mark('dutyAssignments', dutyKey(assignment)); renderRole();
+      }));
+      for (const assignment of roleAssignments) {
+        const guardian = data.masters.guardians.find(g => g['保護者ID'] === assignment['保護者ID']);
+        const row = el('div', undefined, 'row'); row.append(el('span', guardian?.['表示名'] || '退籍保護者'), button('外す', () => { assignment['保護者ID'] = ''; mark('dutyAssignments', dutyKey(assignment)); renderRole(); }, undefined, 'danger')); rolePicker.append(row);
       }
       const assigned = data.dutyAssignments.filter(d => d['予定ID'] === s['予定ID'] && d['保護者ID']);
-      rolePicker.append(el('p', `割当一覧：${assigned.map(d => `${d['役割']}・${d['区分']}：${data.masters.guardians.find(g => g['保護者ID'] === d['保護者ID'])?.['表示名'] || '退籍保護者'}`).join(' ／ ') || '未設定'}`));
+      const assignedByRole = Object.entries(assigned.reduce((result, assignment) => { (result[assignment['役割']] ||= []).push(data.masters.guardians.find(g => g['保護者ID'] === assignment['保護者ID'])?.['表示名'] || '退籍保護者'); return result; }, {}));
+      rolePicker.append(el('p', `割当一覧：${assignedByRole.map(([name, names]) => `${name}：${names.join('、')}`).join(' ／ ') || '未設定'}`));
       if (isSelfPractice(s)) rolePicker.append(el('p', missingFor(s).length ? `自主練の不足：${missingFor(s).join('、')}` : '自主練の公開条件を満たしています。', missingFor(s).length ? 'warning' : 'success'));
     };
     renderRole(); card.append(rolePicker); return card;

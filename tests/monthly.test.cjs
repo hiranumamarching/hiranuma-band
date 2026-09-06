@@ -76,6 +76,18 @@ test('保護者入力は下書き予定を読めるが、実施しない枠へ�
   assert.equal(otherGuardian.ok, false);
 });
 
+test('同じ役割に当番を複数追加でき、公開データに主副の区別を含めない', () => {
+  const h = fresh(); const session = bootstrap(h).sessions[0];
+  h.admin('admin_save_duty_assignments', { records: [
+    { '予定ID': session['予定ID'], '役割': '見守り', '区分': 'A-1', '保護者ID': 'G001' },
+    { '予定ID': session['予定ID'], '役割': '見守り', '区分': 'A-2', '保護者ID': 'G002' }
+  ] });
+  assert.equal(bootstrap(h).dutyAssignments.filter(row => row['予定ID'] === session['予定ID'] && row['役割'] === '見守り').length, 2);
+  h.admin('admin_publish_month', { monthId: '2026-09' });
+  assert.equal(parent(h).data.dutyAssignments.filter(row => row['予定ID'] === session['予定ID']).length, 2);
+  assert(parent(h).data.dutyAssignments.every(row => !('区分' in row)));
+});
+
 for (const afternoon of [true, false]) test(`${afternoon ? '午後' : '午前'}だけ自主練でも4条件必須・同じ保護者は1名・施設申請は任意`, () => {
   const h = fresh(); const s = selfPractice(h, afternoon);
   assert.throws(() => h.admin('admin_publish_month', { monthId: '2026-09' }), /当番2名/);
@@ -96,7 +108,7 @@ test('保護者の公開当番は表示名付きallowlistのみ・他家庭連�
   h.context.appendObjects_('attendance',[{'予定ID':s['予定ID'],'子どもID':'M001','午前':true,'午後':false,'連絡事項':'自家庭用'},{'予定ID':s['予定ID'],'子どもID':'M002','午前':true,'午後':true,'連絡事項':'他家庭の秘密連絡'}]);
   h.context.appendObjects_('duty_offers',[{'予定ID':s['予定ID'],'保護者ID':'G001','可否':true,'メモ':'自家庭メモ'},{'予定ID':s['予定ID'],'保護者ID':'G002','可否':true,'メモ':'他家庭の秘密メモ'}]);
   h.admin('admin_publish_month',{monthId:'2026-09'}); const r = parent(h).data;
-  assert.equal(r.dutyAssignments[0]['表示名'],'保護者02'); assert.deepEqual(Object.keys(r.dutyAssignments[0]).sort(), ['予定ID','区分','役割','表示名'].sort());
+  assert.equal(r.dutyAssignments[0]['表示名'],'保護者02'); assert.deepEqual(Object.keys(r.dutyAssignments[0]).sort(), ['予定ID','役割','表示名'].sort());
   assert.equal(r.attendance[0]['連絡事項'],'自家庭用'); assert.equal(r.dutyOffers[0]['メモ'],'自家庭メモ'); assert(!JSON.stringify(r).includes('他家庭の秘密'));
   assert.equal(r.attendanceCounts[s['予定ID']].morning,2); assert.deepEqual(bootstrap(h).shared.dutyAssignments,r.dutyAssignments);
 });

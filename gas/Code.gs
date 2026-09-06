@@ -419,7 +419,7 @@ function publicDutyAssignments_(sessions) {
   const allowed = indexBy_(sessions, '予定ID');
   const guardians = indexBy_(readTable_('m_guardians'), '保護者ID');
   return dutyAssignments_().filter(function(row) { return !!allowed[row['予定ID']] && !!guardians[row['保護者ID']]; }).map(function(row) {
-    return { '予定ID': row['予定ID'], '役割': row['役割'], '区分': row['区分'], '表示名': guardians[row['保護者ID']]['表示名'] };
+    return { '予定ID': row['予定ID'], '役割': row['役割'], '表示名': guardians[row['保護者ID']]['表示名'] };
   });
 }
 
@@ -556,7 +556,7 @@ function activeSessions_() {
   });
 }
 
-// 予定×役割×主副を割当枠とする。保護者IDが空の最新行は割当解除。
+// 予定×役割×内部識別子を割当枠とする。保護者IDが空の最新行は割当解除。
 function dutyAssignments_() {
   return latestRows_(readTable_('duty_assignments'), function(row) { return row['予定ID'] + '|' + row['役割'] + '|' + row['区分']; }).filter(function(row) { return !!row['保護者ID']; });
 }
@@ -679,7 +679,7 @@ function adminSaveDutyAssignments_(records) {
     const sessions = indexBy_(activeSessions_(), '予定ID');
     const guardians = indexBy_(readTable_('m_guardians').filter(function(row) { return asBoolean_(row['在籍']); }), '保護者ID');
     const rows = records.map(function(record) {
-      if (!sessions[record['予定ID']] || !String(record['役割'] || '').trim() || ['主', '副'].indexOf(record['区分']) < 0) throw apiError_(API_ERROR.INVALID_REQUEST, '当番の予定・役割・区分が不正です。');
+      if (!sessions[record['予定ID']] || !String(record['役割'] || '').trim() || !/^[A-Za-z0-9_\-\u3040-\u30ff\u4e00-\u9faf]{1,80}$/.test(String(record['区分'] || ''))) throw apiError_(API_ERROR.INVALID_REQUEST, '当番の予定・役割・識別子が不正です。');
       if (record['保護者ID'] && !guardians[record['保護者ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '保護者が不正です。');
       return { '予定ID': record['予定ID'], '役割': String(record['役割']).trim(), '区分': record['区分'], '保護者ID': record['保護者ID'] || '', '更新時刻': new Date() };
     });
