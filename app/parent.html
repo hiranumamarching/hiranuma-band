@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>保護者用｜平沼マーチングバンド</title>
+  <link rel="stylesheet" href="common.css">
+  <style>
+    .parent-context { border-left:4px solid var(--navy); }
+    .month-overview { padding:0; overflow:hidden; }
+    .overview-row { display:grid; grid-template-columns:76px 1fr auto; gap:8px; align-items:center; padding:11px 14px; border-bottom:1px solid var(--line); font-size:.85rem; }
+    .overview-row:last-child { border-bottom:0; }.overview-row strong { color:var(--navy); }.overview-row small { display:block; color:var(--muted); }.overview-row .badge { font-size:.78rem; white-space:nowrap; }
+    details.card { padding:0; } details.card > summary { list-style:none; cursor:pointer; padding:16px; } details.card > summary::-webkit-details-marker { display:none; } details.card > summary::after { content:'詳細を開く'; color:var(--navy); font-size:.85rem; font-weight:700; } details.card[open] > summary { border-bottom:1px solid var(--line); } details.card[open] > summary::after { content:'閉じる'; }
+    .session-body { padding:0 16px 16px; }.session-head { display:flex; gap:8px; flex-wrap:wrap; align-items:baseline; justify-content:space-between; }.session-head h2 { margin:0; }.session-meta { display:block; margin:5px 0 0; color:var(--muted); font-size:.9rem; }
+    .member { border-top:1px solid var(--line); margin-top:14px; padding-top:12px; }.member h3 { margin:0 0 4px; }.slot-row { display:grid; grid-template-columns:68px 1fr; gap:10px; align-items:center; margin:9px 0; }.slot-row strong { color:var(--navy); }.slot-row .pills { margin:0; }
+    .duty { background:#f8f9fd; border-radius:10px; padding:12px; margin-top:14px; }.duty h3 { margin:0 0 3px; }.duty .pills { margin-bottom:4px; }.save-bar { position:sticky; bottom:0; padding:12px 0 4px; background:rgba(246,247,251,.96); }.save-bar button { width:100%; }
+    @media(max-width:420px) { .overview-row { grid-template-columns:67px 1fr auto; padding:10px; }.slot-row { grid-template-columns:54px 1fr; } }
+  </style>
+  <script src="api.js" defer></script>
+  <script src="shared.js" defer></script>
+  <script src="parent.js" defer></script>
+</head>
+<body>
+  <header><div class="shell"><p class="eyebrow">平沼マーチングバンド · 保護者用</p><h1>出席・当番</h1></div></header>
+  <main class="shell">
+    <p id="message" role="status" aria-live="polite">読み込み中です…</p>
+    <section id="connection" class="card" hidden>
+      <h2>アプリの接続設定</h2>
+      <p>管理者から案内された保護者用URLで開いてください。初回のみGAS Web AppのURLを設定します。</p>
+      <label>GAS Web App URL<input id="api-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></label>
+      <button id="connect" type="button" class="primary">接続する</button>
+    </section>
+    <fieldset id="workspace" hidden>
+      <legend class="sr-only">保護者用の出席・当番入力</legend>
+      <nav id="tabs" class="tabs" aria-label="保護者用メニュー"></nav>
+      <section id="panel"></section>
+    </fieldset>
+  </main>
+</body>
+</html>

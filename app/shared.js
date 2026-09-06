@@ -13,8 +13,11 @@ window.BandShared = (() => {
       card.append(el('p', `${s['集合']}集合 → ${s['解散']}解散 / ${place ? place['名称'] : '場所未設定'}`));
       const slots = s['種別'] === '本番' ? [['am', '終日']] : [['am', '午前'], ['pm', '午後']];
       for (const [slot, label] of slots) {
-        const teacher = (data.teachers || []).find(t => t['先生ID'] === s[`担当先生ID_${slot}`]);
-        card.append(el('div', `${label}：${s[`staffing_${slot}`] === '先生あり' ? teacher?.['氏名'] || '先生あり' : s[`staffing_${slot}`]}`));
+        if (s[`実施有無_${slot}`] === 'なし') continue;
+        const teacherIds = String(s[`担当先生ID_${slot}`] || '').split(',').map(id => id.trim()).filter(Boolean);
+        const teacherNames = teacherIds.map(id => (data.teachers || []).find(t => t['先生ID'] === id)?.['氏名']).filter(Boolean);
+        const staffing = s[`staffing_${slot}`] || '未定';
+        card.append(el('div', `${label}：${staffing === '先生あり' ? teacherNames.join('・') || '先生あり' : staffing}`));
       }
       const duties = (data.dutyAssignments || []).filter(d => d['予定ID'] === s['予定ID']);
       card.append(el('p', `本日の当番：${duties.map(d => `${d['表示名']}さん（${d['役割']}・${d['区分']}）`).join('、') || '未定'}`));

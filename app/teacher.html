@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>先生用・候補日入力｜平沼マーチングバンド</title>
+  <link rel="stylesheet" href="common.css">
+  <style>
+    .teacher-card { border-left:4px solid var(--navy); }
+    .teacher-card h2 { margin-bottom:4px; }
+    .session-meta { color:var(--muted); margin:0 0 12px; }
+    .slot-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .slot { margin-top:0; padding:12px; border:1px solid var(--line); border-radius:10px; }
+    .slot h3 { margin:0; }
+    .slot .pills { margin-bottom:0; }
+    .slot .pills button { flex:1; }
+    .clear-answer { width:100%; margin-top:8px; }
+    .not-needed { background:#f1f3f7; color:var(--muted); border-radius:10px; padding:12px; }
+    .not-needed strong { display:block; color:var(--ink); }
+    .month-pills button { flex:1 1 100px; }
+    .save-bar { position:sticky; bottom:0; background:rgba(246,247,251,.95); padding:12px 0 2px; }
+    .save-bar button { width:100%; }
+    @media(max-width:520px) { .slot-grid { grid-template-columns:1fr; } }
+  </style>
+  <script src="api.js" defer></script>
+  <script src="teacher.js" defer></script>
+</head>
+<body>
+  <header><div class="shell"><p class="eyebrow">平沼マーチングバンド · 先生用</p><h1>候補日の可否入力</h1></div></header>
+  <main class="shell">
+    <p id="message" role="status" aria-live="polite">読み込み中です…</p>
+    <section id="connection" class="card" hidden>
+      <h2>アプリの接続設定</h2>
+      <p>管理者から案内された先生用URLで開いてください。初回のみGAS Web AppのURLを設定します。</p>
+      <label>GAS Web App URL<input id="api-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></label>
+      <button id="connect" type="button" class="primary">接続する</button>
+    </section>
+    <fieldset id="workspace" hidden>
+      <legend class="sr-only">先生用候補日入力</legend>
+      <section class="card teacher-card">
+        <p class="muted">入力する先生</p>
+        <h2 id="teacher-name"></h2>
+        <p class="muted">○（参加可）・×（不可）を選んでください。まだ決められない場合や誤入力時は「未入力に戻す」で取り消せます。送信後も管理者が予定を確定するまでは修正できます。</p>
+      </section>
+      <section class="card">
+        <h2>対象月</h2>
+        <div id="months" class="pills month-pills" role="group" aria-label="対象月"></div>
+      </section>
+      <section id="sessions" aria-live="polite"></section>
+      <div class="save-bar"><p id="save-state" class="muted">変更はありません。</p><button id="save" type="button" class="primary">入力内容を送信する</button></div>
+    </fieldset>
+  </main>
+</body>
+</html>

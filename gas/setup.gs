@@ -9,9 +9,9 @@ const BAND_DB_SCHEMA = {
   m_guardians: ['保護者ID', '家庭ID', '表示名', '対応可能な役割', '在籍'],
   m_members: ['子どもID', '家庭ID', '氏名', '基本担当楽器', '在籍'],
   m_teachers: ['先生ID', '氏名', '招待トークン', '在籍'],
-  m_places: ['場所ID', '名称', '並び順'],
+  m_places: ['場所ID', '名称', '並び順', '有効'],
   months: ['月ID', '状態', '先生入力締切', '保護者入力締切'],
-  sessions: ['予定ID', '月ID', '日付', '種別', 'staffing_am', '担当先生ID_am', 'staffing_pm', '担当先生ID_pm', '集合', '開始', '終了', '解散', '場所ID', '確定状態', '備考'],
+  sessions: ['予定ID', '月ID', '日付', '種別', '実施有無_am', 'staffing_am', '担当先生ID_am', '実施有無_pm', 'staffing_pm', '担当先生ID_pm', '集合', '開始', '終了', '解散', '場所ID', '確定状態', '備考'],
   session_selfpractice: ['予定ID', '鍵の担当', '中止判断者', '緊急連絡先', '施設使用申請済', '実施報告'],
   teacher_availability: ['先生ID', '予定ID', '枠', '可否', '送信時刻'],
   attendance: ['子どもID', '予定ID', '午前', '午後', '連絡事項', '入力者', '送信時刻'],
@@ -51,6 +51,7 @@ function setupBandDatabase() {
   }
 
   migrateSessionsSchema();
+  migratePlacesSchema();
   seedDemoData_(spreadsheet);
   const result = {
     spreadsheetId: spreadsheetId,
@@ -103,16 +104,13 @@ function seedDemoData_(spreadsheet) {
     ['T003', 'テスト先生C', createInviteToken_(), true],
     ['T004', 'テスト先生D', createInviteToken_(), true]
   ]);
-  appendSeedRows_(spreadsheet.getSheetByName('m_places'), [
-    ['P001', '平沼小学校', 1], ['P002', '西公会堂', 2], ['P003', 'ステージ', 3],
-    ['P004', '左袖', 4], ['P005', '右袖', 5], ['P006', 'ステージ裏', 6]
-  ]);
+  appendSeedRows_(spreadsheet.getSheetByName('m_places'), [['P001', '平沼小学校', 1, true]]);
   appendSeedRows_(spreadsheet.getSheetByName('months'), [['2026-09', '下書き', '', '']]);
   appendSeedRows_(spreadsheet.getSheetByName('sessions'), [
-    ['S20260905', '2026-09', '2026-09-05', '通常練習', '未定', '', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', ''],
-    ['S20260912', '2026-09', '2026-09-12', '通常練習', '未定', '', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', ''],
-    ['S20260919', '2026-09', '2026-09-19', '通常練習', '未定', '', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', ''],
-    ['S20260926', '2026-09', '2026-09-26', '通常練習', '未定', '', '未定', '', '09:30', '10:00', '15:00', '15:30', 'P001', '下書き', '']
+    ['S20260905', '2026-09', '2026-09-05', '通常練習', '実施', '未定', '', '実施', '未定', '', '09:45', '10:00', '15:00', '15:15', 'P001', '下書き', ''],
+    ['S20260912', '2026-09', '2026-09-12', '通常練習', '実施', '未定', '', '実施', '未定', '', '09:45', '10:00', '15:00', '15:15', 'P001', '下書き', ''],
+    ['S20260919', '2026-09', '2026-09-19', '通常練習', '実施', '未定', '', '実施', '未定', '', '09:45', '10:00', '15:00', '15:15', 'P001', '下書き', ''],
+    ['S20260926', '2026-09', '2026-09-26', '通常練習', '実施', '未定', '', '実施', '未定', '', '09:45', '10:00', '15:00', '15:15', 'P001', '下書き', '']
   ]);
 }
 
@@ -123,6 +121,21 @@ function appendSeedRows_(sheet, rows) {
 
 function createInviteToken_() {
   return Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
+}
+
+/** 場所は履歴を残し、有効なものだけを選択肢に表示する。旧初期場所は平沼小学校以外を無効化する。 */
+function migratePlacesSchema() {
+  return withWriteLock_(function() {
+    const sheet = getDatabase_().getSheetByName('m_places');
+    if (!sheet) throw new Error('m_places がありません。');
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (headers.indexOf('有効') < 0) sheet.getRange(1, headers.length + 1, 1, 1).setValues([['有効']]);
+    const retired = latestRows_(readTable_('m_places'), function(row) { return row['場所ID']; }).filter(function(row) {
+      return row['場所ID'] !== 'P001' && (row['有効'] === '' || asBoolean_(row['有効']));
+    }).map(function(row) { row['有効'] = false; return row; });
+    if (retired.length) appendObjects_('m_places', retired);
+    return { retired: retired.length };
+  });
 }
 
 /** 旧列・既存行を残し、足りないヘッダーと移行行だけを追記する。再実行可能。 */
@@ -137,7 +150,9 @@ function migrateSessionsSchema() {
     const migrated = rows.filter(function(row) { return !row.staffing_am; }).map(function(row) {
       const next = copyObject_(row);
       next.staffing_am = row.staffing || '未定';
+      next['実施有無_am'] = row['実施有無_am'] || '実施';
       next['担当先生ID_am'] = next.staffing_am === '先生あり' ? row['担当先生ID'] || '' : '';
+      next['実施有無_pm'] = row['種別'] === '本番' ? 'なし' : (row['実施有無_pm'] || '実施');
       next.staffing_pm = row['種別'] === '本番' ? '' : next.staffing_am;
       next['担当先生ID_pm'] = row['種別'] === '本番' ? '' : next['担当先生ID_am'];
       return next;

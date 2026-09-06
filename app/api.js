@@ -20,13 +20,14 @@ window.BandAPI = (() => {
       history.replaceState(null, '', url.pathname + url.search + url.hash);
     }
     let endpoint = storageGet(endpointKey) || defaultEndpoint;
+    const inviteLabel = role === 'a' ? '管理者' : role === 't' ? '先生' : '保護者';
     return {
       get endpoint() { return endpoint; },
       get hasToken() { return Boolean(token); },
       configure(value) { if (!validEndpoint(value)) throw new Error('GAS Web App の /exec URL を指定してください。'); endpoint = value; storageSet(endpointKey, endpoint); },
       forget() { token = ''; storageSet(key, ''); },
       async request(action, payload = {}) {
-        if (!token) throw new Error('管理者の招待URL（admin.html?a=…）から開いてください。');
+        if (!token) throw new Error(`${inviteLabel}用の招待URLから開いてください。`);
         if (!validEndpoint(endpoint)) throw new Error('GAS Web App の接続先を設定してください。');
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 45000);

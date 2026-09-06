@@ -36,7 +36,7 @@ function createHarness() {
   const context = vm.createContext({ Date, console, PropertiesService: { getScriptProperties: () => propertyStore }, SpreadsheetApp: { create: () => spreadsheet, openById: id => { if (id !== 'DUMMY_DATABASE') throw new Error('unknown database'); return spreadsheet; } }, Logger: { log() {} }, Session: { getScriptTimeZone: () => 'Asia/Tokyo' }, Utilities: { getUuid: randomUUID, formatDate: (date, zone, format) => {
     const parts = Object.fromEntries(new Intl.DateTimeFormat('sv-SE', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(date).map(p => [p.type, p.value]));
     const day = `${parts.year}-${parts.month}-${parts.day}`, time = `${parts.hour}:${parts.minute}`;
-    return format === 'yyyy-MM-dd' ? day : format === 'HH:mm' ? time : `${day}T${time}:${parts.second}`;
+    return format === 'yyyy-MM' ? `${parts.year}-${parts.month}` : format === 'yyyy-MM-dd' ? day : format === 'HH:mm' ? time : `${day}T${time}:${parts.second}`;
   } }, LockService: { getScriptLock: () => ({ tryLock: () => { if (locked) return false; locked = true; return true; }, releaseLock: () => { locked = false; } }) }, ContentService: { MimeType: { JSON: 'application/json' }, createTextOutput: text => ({ text, setMimeType() { return this; } }) } });
   for (const file of ['setup.gs', 'Code.gs']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../gas', file), 'utf8'), context, { filename: file });
   function post(request) { return JSON.parse(context.doPost({ postData: { contents: JSON.stringify(request) } }).text); }

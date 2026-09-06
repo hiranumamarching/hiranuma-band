@@ -76,6 +76,7 @@ function handleWrite_(request) {
     case 'admin_save_event':
     case 'admin_save_timeline_items':
     case 'admin_save_teacher_availability':
+    case 'admin_save_place':
     case 'admin_publish_month':
       requireRole_(auth, 'admin');
       return { ok: true, data: saveAdmin_(request) };
@@ -93,6 +94,7 @@ function parentBootstrap_(auth) {
     return row['家庭ID'] === householdId && asBoolean_(row['在籍']);
   });
   const sessions = publishedSessions_();
+  const inputSessions = activeSessions_();
   const attendanceLatest = latestRows_(readTable_('attendance'), function(row) {
     return row['子どもID'] + '|' + row['予定ID'];
   });
@@ -108,13 +110,14 @@ function parentBootstrap_(auth) {
     household: withoutKeys_(auth.household, ['招待トークン']),
     guardians: guardians,
     members: members,
-    months: publishedMonths_(),
+    months: latestRows_(readTable_('months'), function(row) { return row['月ID']; }),
     sessions: sessions,
+    inputSessions: inputSessions,
     attendance: ownAttendance,
     dutyOffers: ownDutyOffers,
     attendanceCounts: attendanceCounts_(sessions),
     dutyAssignments: publicDutyAssignments_(sessions),
-    places: readTable_('m_places'),
+    places: activePlaces_(),
     teachers: publicTeachers_()
   };
 }
@@ -146,6 +149,7 @@ function teacherBootstrap_(auth) {
     teacher: withoutKeys_(auth.teacher, ['招待トークン']),
     months: months,
     sessions: sessions,
+    places: activePlaces_(),
     availability: availability,
     now: new Date().toISOString()
   };
@@ -157,7 +161,7 @@ function adminBootstrap_() {
     guardians: readTable_('m_guardians'),
     members: readTable_('m_members'),
     teachers: readTable_('m_teachers').map(function(row) { return withoutKeys_(row, ['招待トークン']); }),
-    places: readTable_('m_places')
+    places: activePlaces_()
   };
   return {
     masters: masters,
@@ -183,12 +187,13 @@ function saveTeacherAvailability_(auth, request) {
   const records = rows.map(function(row) {
     const session = sessions[row.sessionId];
     if (!session || !monthMap[session['月ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '予定IDが不正です。');
-    ensureDeadlineOpen_(monthMap[session['月ID']], '先生入力締切');
+    // 先生の可否入力に締切は設けない。管理者が予定を確定するまで修正できる。
     const slot = String(row.slot || '');
+    if (session['種別'] === '本番') throw apiError_(API_ERROR.INVALID_REQUEST, '本番は先生の入力対象外です。');
     if (['午前', '午後', '終日'].indexOf(slot) === -1) throw apiError_(API_ERROR.INVALID_REQUEST, '枠が不正です。');
     if (session['種別'] === '本番' && slot !== '終日') throw apiError_(API_ERROR.INVALID_REQUEST, '本番は終日で入力します。');
     if (session['種別'] !== '本番' && slot === '終日') throw apiError_(API_ERROR.INVALID_REQUEST, '練習は午前または午後で入力します。');
-    if (['○', '×', '△'].indexOf(String(row.availability || '')) === -1) throw apiError_(API_ERROR.INVALID_REQUEST, '可否が不正です。');
+    if (['○', '×', ''].indexOf(String(row.availability || '')) === -1) throw apiError_(API_ERROR.INVALID_REQUEST, '可否が不正です。');
     return { '先生ID': teacherId, '予定ID': session['予定ID'], '枠': slot, '可否': row.availability, '送信時刻': new Date() };
   });
   withWriteLock_(function() { appendObjects_('teacher_availability', records); });
@@ -211,7 +216,10 @@ function saveParentMonth_(auth, request) {
     ensureDeadlineOpen_(months[session['月ID']], '保護者入力締切');
     const guardianId = row.guardianId || fallbackGuardianId;
     if (!guardianMap[guardianId]) throw apiError_(API_ERROR.FORBIDDEN, '入力者がこの家庭に属していません。');
-    return { '子どもID': row.memberId, '予定ID': row.sessionId, '午前': asBoolean_(row.morning), '午後': asBoolean_(row.afternoon), '連絡事項': String(row.note || ''), '入力者': guardianId, '送信時刻': new Date() };
+    const amOpen = session['種別'] === '本番' || session['実施有無_am'] !== 'なし';
+    const pmOpen = session['種別'] !== '本番' && session['実施有無_pm'] !== 'なし';
+    if ((!amOpen && asBoolean_(row.morning)) || (!pmOpen && asBoolean_(row.afternoon))) throw apiError_(API_ERROR.INVALID_REQUEST, '実施しない枠には出席を送信できません。');
+    return { '子どもID': row.memberId, '予定ID': row.sessionId, '午前': amOpen && asBoolean_(row.morning), '午後': pmOpen && asBoolean_(row.afternoon), '連絡事項': String(row.note || ''), '入力者': guardianId, '送信時刻': new Date() };
   });
   const offers = dutyRows.map(function(row) {
     const session = sessions[row.sessionId];
@@ -246,6 +254,8 @@ function saveAdmin_(request) {
       return adminAppend_(request.records || [], 'timeline_items', ['項目ID', '予定ID', '日区分', '種別', '内容']);
     case 'admin_save_teacher_availability':
       return adminSaveTeacherAvailability_(request.records || []);
+    case 'admin_save_place':
+      return adminSavePlace_(request);
     case 'admin_publish_month':
       return adminPublishMonth_(request.monthId);
     default:
@@ -269,11 +279,25 @@ function adminSaveTeacherAvailability_(records) {
     if (['午前', '午後', '終日'].indexOf(slot) === -1) throw apiError_(API_ERROR.INVALID_REQUEST, '枠が不正です。');
     if (session['種別'] === '本番' && slot !== '終日') throw apiError_(API_ERROR.INVALID_REQUEST, '本番は終日で入力します。');
     if (session['種別'] !== '本番' && slot === '終日') throw apiError_(API_ERROR.INVALID_REQUEST, '練習は午前または午後で入力します。');
-    if (['○', '×', '△'].indexOf(String(row.availability || '')) === -1) throw apiError_(API_ERROR.INVALID_REQUEST, '可否が不正です。');
+    if (['○', '×', ''].indexOf(String(row.availability || '')) === -1) throw apiError_(API_ERROR.INVALID_REQUEST, '可否が不正です。');
     return { '先生ID': row.teacherId, '予定ID': session['予定ID'], '枠': slot, '可否': row.availability, '送信時刻': new Date() };
   });
   withWriteLock_(function() { appendObjects_('teacher_availability', rows); });
   return { saved: rows.length };
+}
+
+function adminSavePlace_(request) {
+  const name = String(request.name || '').trim();
+  if (!name || name.length > 80) throw apiError_(API_ERROR.INVALID_REQUEST, '場所名は1〜80文字で入力してください。');
+  return withWriteLock_(function() {
+    const all = latestRows_(readTable_('m_places'), function(row) { return row['場所ID']; });
+    if (activePlaces_().some(function(row) { return row['名称'] === name; })) throw apiError_(API_ERROR.INVALID_REQUEST, '同じ場所が既にあります。');
+    const numbers = all.map(function(row) { const match = String(row['場所ID']).match(/^P(\d+)$/); return match ? Number(match[1]) : 0; });
+    const orders = all.map(function(row) { return Number(row['並び順']) || 0; });
+    const row = { '場所ID': 'P' + String(Math.max.apply(null, [0].concat(numbers)) + 1).padStart(3, '0'), '名称': name, '並び順': Math.max.apply(null, [0].concat(orders)) + 1, '有効': true };
+    appendObjects_('m_places', [row]);
+    return { place: row };
+  });
 }
 
 function adminCreateMonth_(request) {
@@ -296,7 +320,7 @@ function createSaturdaySessions_(monthId, copyFromMonthId) {
   const month = Number(parts[1]);
   const prior = activeSessions_().filter(function(row) { return row['月ID'] === copyFromMonthId; })[0] || {};
   const defaults = {
-    '集合': prior['集合'] || '09:30', '開始': prior['開始'] || '10:00', '終了': prior['終了'] || '15:00', '解散': prior['解散'] || '15:30', '場所ID': prior['場所ID'] || 'P001'
+    '集合': prior['集合'] || '09:45', '開始': prior['開始'] || '10:00', '終了': prior['終了'] || '15:00', '解散': prior['解散'] || '15:15', '場所ID': prior['場所ID'] || 'P001'
   };
   const records = [];
   for (let day = 1; day <= 31; day += 1) {
@@ -304,7 +328,7 @@ function createSaturdaySessions_(monthId, copyFromMonthId) {
     if (date.getMonth() !== month - 1) break;
     if (date.getDay() !== 6) continue;
     const isoDate = Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-    records.push({ '予定ID': 'S' + isoDate.replace(/-/g, ''), '月ID': monthId, '日付': isoDate, '種別': '通常練習', 'staffing_am': '未定', '担当先生ID_am': '', 'staffing_pm': '未定', '担当先生ID_pm': '', '集合': defaults['集合'], '開始': defaults['開始'], '終了': defaults['終了'], '解散': defaults['解散'], '場所ID': defaults['場所ID'], '確定状態': '下書き', '備考': '' });
+    records.push({ '予定ID': 'S' + isoDate.replace(/-/g, ''), '月ID': monthId, '日付': isoDate, '種別': '通常練習', '実施有無_am': '実施', 'staffing_am': '未定', '担当先生ID_am': '', '実施有無_pm': '実施', 'staffing_pm': '未定', '担当先生ID_pm': '', '集合': defaults['集合'], '開始': defaults['開始'], '終了': defaults['終了'], '解散': defaults['解散'], '場所ID': defaults['場所ID'], '確定状態': '下書き', '備考': '' });
   }
   return records;
 }
@@ -496,6 +520,7 @@ function asBoolean_(value) {
 }
 
 function formatCell_(value, header) {
+  if (value instanceof Date && header === '月ID') return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM');
   if (value instanceof Date && ['日付', '先生入力締切', '保護者入力締切'].indexOf(header) >= 0) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   if (value instanceof Date && ['集合', '開始', '終了', '解散', '時刻'].indexOf(header) >= 0) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'HH:mm');
   if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
@@ -540,9 +565,15 @@ function publicTeachers_() {
   return readTable_('m_teachers').map(function(row) { return { '先生ID': row['先生ID'], '氏名': row['氏名'] }; });
 }
 
+function activePlaces_() {
+  return latestRows_(readTable_('m_places'), function(row) { return row['場所ID']; }).filter(function(row) {
+    return row['有効'] === undefined || row['有効'] === '' || asBoolean_(row['有効']);
+  }).sort(function(a, b) { return (Number(a['並び順']) || 0) - (Number(b['並び順']) || 0); });
+}
+
 function sharedSchedule_() {
   const sessions = publishedSessions_();
-  return { sessions: sessions, dutyAssignments: publicDutyAssignments_(sessions), attendanceCounts: attendanceCounts_(sessions), places: readTable_('m_places'), teachers: publicTeachers_() };
+  return { sessions: sessions, dutyAssignments: publicDutyAssignments_(sessions), attendanceCounts: attendanceCounts_(sessions), places: activePlaces_(), teachers: publicTeachers_() };
 }
 
 function requireRecords_(records) {
@@ -573,16 +604,28 @@ function cleanSession_(record) {
   if (['通常練習', '自主練', '本番', 'その他'].indexOf(row['種別']) < 0) throw apiError_(API_ERROR.INVALID_REQUEST, '種別が不正です。');
   const teachers = indexBy_(readTable_('m_teachers').filter(function(item) { return asBoolean_(item['在籍']); }), '先生ID');
   ['am', 'pm'].forEach(function(slot) {
+    const execution = '実施有無_' + slot;
     const staffing = 'staffing_' + slot; const teacher = '担当先生ID_' + slot;
-    if (slot === 'pm' && row['種別'] === '本番') { row[staffing] = ''; row[teacher] = ''; return; }
+    if (row[execution] === '') row[execution] = slot === 'pm' && row['種別'] === '本番' ? 'なし' : '実施';
+    if (['実施', 'なし'].indexOf(row[execution]) < 0) throw apiError_(API_ERROR.INVALID_REQUEST, '午前・午後の実施有無を指定してください。');
+    if (slot === 'pm' && row['種別'] === '本番') { row[execution] = 'なし'; row[staffing] = ''; row[teacher] = ''; return; }
+    if (row[execution] === 'なし') { row[staffing] = ''; row[teacher] = ''; return; }
+    if (row['種別'] === '自主練') { row[staffing] = '自主練'; row[teacher] = ''; return; }
     if (['未定', '先生あり', '自主練'].indexOf(row[staffing]) < 0) throw apiError_(API_ERROR.INVALID_REQUEST, '午前・午後の指導体制を指定してください。');
-    if (row[staffing] === '先生あり' && !teachers[row[teacher]]) throw apiError_(API_ERROR.INVALID_REQUEST, '担当先生を選んでください。');
+    if (row[staffing] === '先生あり') {
+      const teacherIds = row[teacher].split(',').map(function(id) { return id.trim(); }).filter(Boolean);
+      const uniqueTeacherIds = teacherIds.filter(function(id, index) { return teacherIds.indexOf(id) === index; });
+      if (teacherIds.length < 1 || teacherIds.length > 2 || uniqueTeacherIds.length !== teacherIds.length || teacherIds.some(function(id) { return !teachers[id]; })) {
+        throw apiError_(API_ERROR.INVALID_REQUEST, '担当先生は在籍中の先生から1名または2名選んでください。');
+      }
+      row[teacher] = teacherIds.join(',');
+    }
     if (row[staffing] !== '先生あり') row[teacher] = '';
   });
   const times = ['集合', '開始', '終了', '解散'].map(function(key) { return row[key]; });
   times.forEach(function(time) { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw apiError_(API_ERROR.INVALID_REQUEST, '集合・開始・終了・解散時刻を指定してください。'); });
   if (times.join('|') !== times.slice().sort().join('|')) throw apiError_(API_ERROR.INVALID_REQUEST, '集合→開始→終了→解散の順に指定してください。');
-  if (!indexBy_(readTable_('m_places'), '場所ID')[row['場所ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '場所を選んでください。');
+  if (!indexBy_(activePlaces_(), '場所ID')[row['場所ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '場所を選んでください。');
   return row;
 }
 

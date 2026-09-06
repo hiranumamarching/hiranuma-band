@@ -11,8 +11,18 @@
   let tab = 'month', data, busy = false, monthDirty = false, deadlineDraft;
   const dutyKey = r => [r['予定ID'], r['役割'], r['区分']].join('|');
   const availabilityKey = r => [r['先生ID'], r['予定ID'], r['枠']].join('|');
-  const currentMonth = () => data.months.find(m => m['月ID'] === monthId);
-  const sessions = () => data.sessions.filter(s => s['月ID'] === monthId).sort((a, b) => a['日付'].localeCompare(b['日付']));
+  const monthKey = value => String(value || '').trim().slice(0, 7);
+  const teacherIds = value => [...new Set(String(value || '').split(',').map(id => id.trim()).filter(Boolean))];
+  const practiceTimes = session => {
+    if (session['種別'] === '本番') return {};
+    const am = (session['実施有無_am'] || '実施') !== 'なし', pm = (session['実施有無_pm'] || '実施') !== 'なし';
+    if (am && pm) return { '集合': '09:45', '開始': '10:00', '終了': '15:00', '解散': '15:15' };
+    if (am) return { '集合': '09:45', '開始': '10:00', '終了': '12:00', '解散': '12:15' };
+    if (pm) return { '集合': '12:45', '開始': '13:00', '終了': '15:00', '解散': '15:15' };
+    return {};
+  };
+  const currentMonth = () => data.months.find(m => monthKey(m['月ID']) === monthKey(monthId));
+  const sessions = () => data.sessions.filter(s => monthKey(s['月ID']) === monthKey(monthId)).sort((a, b) => a['日付'].localeCompare(b['日付']));
   const active = name => data.masters[name].filter(r => bool(r['在籍']));
   const hasChanges = () => monthDirty || Object.values(dirty).some(set => set.size);
   function el(tag, text, className) { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (className) n.className = className; return n; }
@@ -87,16 +97,16 @@
     yearRow.append(button('翌年', () => switchMonth(`${Math.min(2099, year + 1)}-${monthId.slice(5)}`))); card.append(yearRow);
     const months = pills(Array.from({ length: 12 }, (_, i) => [String(i + 1).padStart(2, '0'), `${i + 1}月`]), monthId.slice(5), m => switchMonth(`${year}-${m}`), '月'); months.className = 'months'; card.append(months);
     const month = currentMonth();
-    if (!deadlineDraft) deadlineDraft = { teacherDeadline: month?.['先生入力締切'] || '', parentDeadline: month?.['保護者入力締切'] || '' };
+    if (!deadlineDraft) deadlineDraft = { parentDeadline: month?.['保護者入力締切'] || '' };
     const deadlines = el('div', undefined, 'grid');
-    deadlines.append(field('先生入力締切', deadlineDraft.teacherDeadline, v => { deadlineDraft.teacherDeadline = v; monthDirty = Boolean(month); updateSaveState(); }, 'date'), field('保護者入力締切', deadlineDraft.parentDeadline, v => { deadlineDraft.parentDeadline = v; monthDirty = Boolean(month); updateSaveState(); }, 'date'));
-    card.append(deadlines, el('p', '締切日の23:59まで入力できます（日本時間）。', 'muted'));
+    deadlines.append(field('保護者入力締切（任意）', deadlineDraft.parentDeadline, v => { deadlineDraft.parentDeadline = v; monthDirty = Boolean(month); updateSaveState(); }, 'date'));
+    card.append(deadlines, el('p', '先生の入力締切はありません。保護者の締切だけ必要に応じて設定できます。', 'muted'));
     if (!month) {
       let copy = true; card.append(check('前月の集合・開始・終了・解散時間を引き継ぐ', true, v => { copy = v; }));
       card.append(button('土曜日の候補を作成', () => run(async () => {
         const prior = new Date(year, Number(monthId.slice(5)) - 2, 1);
         const copyFromMonthId = copy ? `${prior.getFullYear()}-${String(prior.getMonth() + 1).padStart(2, '0')}` : '';
-        await api.request('admin_create_month', { monthId, copyFromMonthId, ...deadlineDraft }); tab = 'schedule'; await load();
+        await api.request('admin_create_month', { monthId, copyFromMonthId, teacherDeadline: '', ...deadlineDraft }); tab = 'schedule'; await load();
       }, '土曜日の候補を作成しました。'), undefined, 'primary'));
     } else card.append(el('p', `${sessions().length}件の候補があります。締切の変更は上部の「変更を保存」で保存します。`));
     panel.append(card);
@@ -108,12 +118,20 @@
   function slots(s) { return s['種別'] === '本番' ? [['am', '終日']] : [['am', '午前'], ['pm', '午後']]; }
   function renderSchedule() {
     if (!requireMonth()) return;
-    const panel = $('panel'); panel.append(el('p', '午前・午後を別々に設定します。可否のボタンを押すと管理者による代理入力ができます。', 'muted'));
+    const panel = $('panel'); panel.append(el('p', '午前・午後を別々に設定します。可否のボタンを押すと管理者による代理入力ができ、○の先生から各枠1名または2名を選べます。', 'muted'), placeMaster());
     for (const s of sessions()) panel.append(sessionCard(s));
     panel.append(button('日付を指定して予定追加', () => {
-      const s = { '予定ID': `S${crypto.randomUUID()}`, '月ID': monthId, '日付': `${monthId}-01`, '種別': '通常練習', staffing_am: '未定', '担当先生ID_am': '', staffing_pm: '未定', '担当先生ID_pm': '', '集合': '09:30', '開始': '10:00', '終了': '15:00', '解散': '15:30', '場所ID': data.masters.places[0]?.['場所ID'] || '', '確定状態': '下書き', '備考': '' };
+      const s = { '予定ID': `S${crypto.randomUUID()}`, '月ID': monthId, '日付': `${monthId}-01`, '種別': '通常練習', '実施有無_am': '実施', staffing_am: '未定', '担当先生ID_am': '', '実施有無_pm': '実施', staffing_pm: '未定', '担当先生ID_pm': '', ...practiceTimes({}), '場所ID': data.masters.places[0]?.['場所ID'] || '', '確定状態': '下書き', '備考': '' };
       data.sessions.push(s); mark('sessions', s['予定ID']); render(); document.getElementById(s['予定ID']).scrollIntoView({ block: 'start' });
     }));
+  }
+  function placeMaster() {
+    const card = el('section', undefined, 'card'); card.append(el('h2', '場所マスター'), el('p', '平沼小学校以外の場所が必要なときだけ追加します。', 'muted'));
+    card.append(pills(data.masters.places.map(place => [place['場所ID'], place['名称']]), '', () => {}, '登録済みの場所'));
+    const row = el('div', undefined, 'row'); const input = document.createElement('input'); input.type = 'text'; input.placeholder = '例：西公会堂'; input.maxLength = 80;
+    row.append(input, button('場所を追加', () => run(async () => {
+      const result = await api.request('admin_save_place', { name: input.value }); data.masters.places.push(result.place); render();
+    }, '場所を追加しました。'))); card.append(row); return card;
   }
   function sessionCard(s) {
     const card = el('article', undefined, 'card'); card.id = s['予定ID'];
@@ -133,33 +151,69 @@
     }, '予定の種別'));
     const times = el('div', undefined, 'grid'); for (const key of ['集合', '開始', '終了', '解散']) times.append(field(key, s[key], v => set(key, v), 'time')); card.append(times);
     card.append(picker('場所', data.masters.places.map(p => [p['場所ID'], p['名称']]), s['場所ID'], v => set('場所ID', v, true)));
-    card.append(availabilityTable(s));
+    card.append(availabilityTable(s, () => card.replaceWith(sessionCard(s))));
     for (const [slot, label] of slots(s)) {
       const block = el('section', undefined, 'slot'); block.append(el('h3', `${label}の指導体制`));
-      block.append(pills(['未定', '先生あり', '自主練'].map(v => [v, v]), s[`staffing_${slot}`], v => {
+      block.append(pills([['実施', '実施する'], ['なし', '実施しない']], s[`実施有無_${slot}`] || '実施', v => {
+        s[`実施有無_${slot}`] = v;
+        if (v === 'なし') { s[`staffing_${slot}`] = ''; s[`担当先生ID_${slot}`] = ''; }
+        else if (!s[`staffing_${slot}`]) s[`staffing_${slot}`] = '先生あり';
+        Object.assign(s, practiceTimes(s));
+        mark('sessions', s['予定ID']); card.replaceWith(sessionCard(s));
+      }, `${label}の実施有無`));
+      if ((s[`実施有無_${slot}`] || '実施') === 'なし') { block.append(el('p', 'この枠は練習を実施しません。先生・保護者の入力対象外です。', 'muted')); card.append(block); continue; }
+      block.append(pills(['先生あり', '自主練', '未定'].map(v => [v, v]), s[`staffing_${slot}`] || '先生あり', v => {
         s[`staffing_${slot}`] = v; if (v !== '先生あり') s[`担当先生ID_${slot}`] = ''; mark('sessions', s['予定ID']); card.replaceWith(sessionCard(s));
       }, `${label}の指導体制`));
-      if (s[`staffing_${slot}`] === '先生あり') block.append(picker(`担当先生（${label}）`, active('teachers').map(t => [t['先生ID'], t['氏名']]), s[`担当先生ID_${slot}`], v => set(`担当先生ID_${slot}`, v, true)));
+      if (s[`staffing_${slot}`] === '先生あり') block.append(teacherPicker(s, slot, label, () => card.replaceWith(sessionCard(s))));
       card.append(block);
     }
     card.append(field('共有する備考', s['備考'], v => set('備考', v), 'textarea'));
     if (isSelfPractice(s)) card.append(selfPracticeForm(s));
     return card;
   }
-  function availabilityTable(s) {
+  function teacherPicker(s, slot, label, redraw) {
+    const fieldName = `担当先生ID_${slot}`;
+    const selected = teacherIds(s[fieldName]);
+    const eligibleIds = new Set(data.teacherAvailability
+      .filter(r => r['予定ID'] === s['予定ID'] && r['枠'] === label && r['可否'] === '○')
+      .map(r => r['先生ID']));
+    const teachers = active('teachers').filter(t => eligibleIds.has(t['先生ID']) || selected.includes(t['先生ID']));
+    const wrap = el('div'); wrap.append(el('h3', `担当先生（${label}・○の先生から1名または2名）`));
+    if (!teachers.length) { wrap.append(el('p', '○の先生がまだいません。上の可否を入力すると選べます。', 'muted')); return wrap; }
+    const choices = el('div', undefined, 'pills'); choices.setAttribute('role', 'group'); choices.setAttribute('aria-label', `${label}の担当先生`);
+    for (const teacher of teachers) {
+      const id = teacher['先生ID']; const isSelected = selected.includes(id); const eligible = eligibleIds.has(id);
+      const labelText = eligible ? teacher['氏名'] : `${teacher['氏名']}（要確認）`;
+      choices.append(button(labelText, () => {
+        const next = teacherIds(s[fieldName]); const index = next.indexOf(id);
+        if (index >= 0) next.splice(index, 1);
+        else {
+          if (!eligible) { message('担当には○の先生だけを選べます。', true); return; }
+          if (next.length >= 2) { message('担当先生は各枠2名まで選べます。', true); return; }
+          next.push(id);
+        }
+        s[fieldName] = next.join(','); mark('sessions', s['予定ID']); redraw();
+      }, isSelected));
+    }
+    wrap.append(choices, el('p', selected.length ? `${selected.length}名を選択中です。` : '担当先生を1名または2名選んでください。', selected.length ? 'muted' : 'warning'));
+    return wrap;
+  }
+  function availabilityTable(s, redraw) {
     const wrap = el('div', undefined, 'table-wrap'); const table = el('table', undefined, 'availability');
     const caption = el('caption', '先生の可否（押して代理入力）'); table.append(caption);
-    const head = el('tr'); head.append(el('th', '先生')); slots(s).forEach(([, label]) => head.append(el('th', label))); const thead = el('thead'); thead.append(head); table.append(thead);
+    const availableSlots = slots(s).filter(([slot]) => (s[`実施有無_${slot}`] || '実施') !== 'なし');
+    if (!availableSlots.length) return el('p', '実施する枠がないため、先生の可否はありません。', 'muted');
+    const head = el('tr'); head.append(el('th', '先生')); availableSlots.forEach(([, label]) => head.append(el('th', label))); const thead = el('thead'); thead.append(head); table.append(thead);
     const body = el('tbody');
     for (const teacher of active('teachers')) {
       const tr = el('tr'); tr.append(el('th', teacher['氏名']));
-      for (const [, label] of slots(s)) {
+      for (const [, label] of availableSlots) {
         let row = data.teacherAvailability.find(r => r['予定ID'] === s['予定ID'] && r['先生ID'] === teacher['先生ID'] && r['枠'] === label);
         const td = el('td'); const b = button(row?.['可否'] || '未入力', () => {
-          const options = ['○', '△', '×']; const value = options[(options.indexOf(row?.['可否']) + 1) % options.length];
+          const options = ['', '○', '×']; const value = options[(options.indexOf(row?.['可否'] || '') + 1) % options.length];
           if (!row) { row = { '予定ID': s['予定ID'], '先生ID': teacher['先生ID'], '枠': label }; data.teacherAvailability.push(row); }
-          row['可否'] = value; mark('teacherAvailability', availabilityKey(row)); b.textContent = value;
-          b.setAttribute('aria-label', `${teacher['氏名']}・${label}：${value}（押して変更）`);
+          row['可否'] = value; mark('teacherAvailability', availabilityKey(row)); redraw();
         }); b.setAttribute('aria-label', `${teacher['氏名']}・${label}：${row?.['可否'] || '未入力'}（押して変更）`); td.append(b); tr.append(td);
       }
       body.append(tr);
