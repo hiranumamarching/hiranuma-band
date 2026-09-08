@@ -26,6 +26,19 @@ test('場所マスターは平沼小学校だけを初期表示し、任意の�
   assert.throws(() => h.admin('admin_save_place', { name: '西公会堂' }), /既にあります/);
 });
 
+test('当番ガイド・年間本番一覧は外部シートを読取専用で整形し、保護者へ連絡先を返さない', () => {
+  const h = fresh();
+  h.properties.set('DUTY_GUIDE_SOURCE_SPREADSHEET_ID', 'DUTY_SOURCE'); h.properties.set('ANNUAL_EVENTS_SOURCE_SPREADSHEET_ID', 'EVENT_SOURCE');
+  h.addExternalSpreadsheet('DUTY_SOURCE', { 'シート1': [
+    ['平沼マーチングバンド 当番について'], [], ['責任者が練習に立ち会います。'], [], ['練習時間'], ['土曜日', '午前', '10:00〜12:00', '9:45集合'], ['※集合場所は川側の門'], [], ['【練習前】'], ['□門の鍵を開ける'], ['□出席予定を確認'], ['【練習後】'], ['□鍵を返却する']
+  ] });
+  h.addExternalSpreadsheet('EVENT_SOURCE', { 'シート2': [
+    ['年間本番スケジュール'], ['', '本番', '日程', '場所', '演奏時間', '楽器運び', '演奏できる楽器', '連絡先', '事前打ち合わせ', 'その他'], ['7月', '納涼祭', '中旬土曜', '西公会堂', '20分', 'トラック有', '何でも', '運営連絡先', '有', '雨天中止']
+  ] });
+  const parentReferences = parent(h).data.references; const adminReferences = bootstrap(h).references;
+  assert.equal(parentReferences.status, 'ready'); assert.equal(parentReferences.guide.sections[0].items.length, 2); assert.equal(parentReferences.annualEvents[0].name, '納涼祭'); assert(!('contact' in parentReferences.annualEvents[0])); assert.equal(adminReferences.annualEvents[0].contact, '運営連絡先');
+});
+
 test('旧スキーマ移行は既存列/行を保存・両枠コピー・本番PM空・再実行可能', () => {
   const h = fresh(); const sheet = h.sheets.get('sessions');
   sheet.rows = [['予定ID','月ID','日付','種別','staffing','担当先生ID','集合','開始','終了','解散','場所ID','確定状態','備考'], ['OLD','2026-09','2026-09-05','通常練習','先生あり','T001','09:30','10:00','15:00','15:30','P001','公開',''], ['EVENT','2026-09','2026-09-06','本番','自主練','','09:30','10:00','15:00','15:30','P001','公開','']];

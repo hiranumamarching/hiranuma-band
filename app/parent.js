@@ -2,8 +2,8 @@
 (() => {
   const api = BandAPI.create('k');
   const $ = id => document.getElementById(id);
-  const state = { data: undefined, monthId: '', guardianId: '', tab: 'input', attendance: new Map(), offers: new Map(), busy: false, openSessions: new Set() };
-  const tabs = [['input', '月間入力'], ['share', '公開予定'], ['card', '個人カード']];
+  const state = { data: undefined, monthId: '', guardianId: '', tab: 'input', guideTab: 'duty', attendance: new Map(), offers: new Map(), busy: false, openSessions: new Set() };
+  const tabs = [['input', '月間入力'], ['share', '公開予定'], ['guide', '当番・本番ガイド'], ['card', '個人カード']];
   const attendanceKey = (memberId, sessionId) => `${memberId}|${sessionId}`;
   const offerKey = (guardianId, sessionId) => `${guardianId}|${sessionId}`;
   const monthKey = value => String(value || '').trim().slice(0, 7);
@@ -38,7 +38,7 @@
   function render() {
     $('tabs').replaceChildren(...tabs.map(([id, label]) => button(label, () => { state.tab = id; render(); }, state.tab === id)));
     const panel = $('panel'); panel.replaceChildren();
-    if (state.tab === 'input') renderInput(panel); else if (state.tab === 'share') window.BandShared.render(panel, state.data, state.monthId); else renderCards(panel);
+    if (state.tab === 'input') renderInput(panel); else if (state.tab === 'share') window.BandShared.render(panel, state.data, state.monthId); else if (state.tab === 'guide') renderGuide(panel); else renderCards(panel);
   }
   function renderInput(panel) {
     const context = el('section', undefined, 'card parent-context');
@@ -84,6 +84,30 @@
     note.addEventListener('input', () => markOffer(state.guardianId, session['予定ID'], { 'メモ': note.value })); wrap.append(note); return wrap;
   }
   function renderCards(panel) { panel.append(el('section', '本番が公開されると、保護者・お子さま別の個人カードをここで確認できます。', 'card')); }
+  function renderGuide(panel) {
+    const references = state.data.references || {};
+    if (references.status !== 'ready') { panel.append(el('section', references.status === 'not_configured' ? '当番ガイド・年間本番一覧は、管理者が参照元のスプレッドシートを設定すると表示されます。' : '当番ガイド・年間本番一覧を読み込めませんでした。時間をおいて再読み込みしてください。', 'card warning')); return; }
+    panel.append(pills([['duty', '当番ガイド'], ['events', '年間本番一覧']], state.guideTab, id => { state.guideTab = id; render(); }, 'ガイドの種類'));
+    if (state.guideTab === 'duty') renderDutyGuide(panel, references.guide || {}); else renderAnnualEvents(panel, references.annualEvents || []);
+  }
+  function renderDutyGuide(panel, guide) {
+    const intro = el('section', undefined, 'card guide-intro'); intro.append(el('h2', '当番の基本業務'), el('p', guide.introduction || '当番ガイドを準備中です。'));
+    (guide.practiceRows || []).forEach(row => intro.append(el('p', row.filter(Boolean).join(' · '), 'muted')));
+    (guide.notes || []).forEach(note => intro.append(el('p', note, 'notice'))); panel.append(intro);
+    (guide.sections || []).forEach((section, index) => {
+      const card = el('section', undefined, 'card guide-step'); const number = el('strong', String(index + 1)); const body = el('div'); body.append(el('h2', section.title)); const list = el('ul', undefined, 'checklist'); (section.items || []).forEach(item => list.append(el('li', item))); body.append(list); card.append(number, body); panel.append(card);
+    });
+  }
+  function renderAnnualEvents(panel, events) {
+    const intro = el('section', '例年の本番候補と準備の目安です。実施が決まった本番は、管理者が正式な本番予定として作成・公開します。', 'card guide-intro'); panel.append(intro);
+    const months = [...new Set(events.map(event => event.month).filter(Boolean))]; let selected = 'all'; const list = el('section', undefined, 'event-list');
+    const draw = () => { list.replaceChildren(); events.filter(event => selected === 'all' || event.month === selected).forEach(event => list.append(eventCard(event))); };
+    panel.append(pills([['all', 'すべて'], ...months.map(month => [month, month])], selected, value => { selected = value; draw(); }, '月で絞り込み'), list); draw();
+  }
+  function eventCard(event) {
+    const details = document.createElement('details'); details.className = 'card event-card'; const summary = document.createElement('summary'); const title = el('span'); title.append(el('strong', event.name), el('small', `${event.schedule || '日程未定'} · ${event.venue || '場所未定'}`)); summary.append(el('span', event.month, 'event-month'), title, el('span', '›', 'event-arrow')); details.append(summary);
+    const body = el('div', undefined, 'event-detail'); const facts = el('dl', undefined, 'event-facts'); [['演奏時間', event.duration], ['楽器運び', event.transport], ['演奏できる楽器', event.instruments], ['事前打合せ', event.meeting]].forEach(([label, value]) => { const item = el('div'); item.append(el('dt', label), el('dd', value || '未定')); facts.append(item); }); body.append(facts); if (event.notes) body.append(el('p', event.notes, 'notice')); details.append(body); return details;
+  }
   async function save() {
     if (state.busy) return;
     if (!allComplete()) { message('出席または当番可否が未入力の日があります。', true); return; }

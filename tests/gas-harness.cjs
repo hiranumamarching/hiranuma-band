@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { randomUUID } = require('node:crypto');
 function createHarness() {
-  const sheets = new Map(), properties = new Map();
+  const sheets = new Map(), properties = new Map(), externalSpreadsheets = new Map();
   let locked = false, writes = 0;
   class Sheet {
     constructor(name) { this.name = name; this.rows = []; }
@@ -32,8 +32,13 @@ function createHarness() {
     }
   }
   const spreadsheet = { getSheetByName: name => sheets.get(name), insertSheet: name => { const s = new Sheet(name); sheets.set(name, s); return s; }, getId: () => 'DUMMY_DATABASE', getUrl: () => 'https://example.invalid/dummy' };
+  function addExternalSpreadsheet(id, definitions) {
+    const referenceSheets = new Map();
+    Object.entries(definitions).forEach(([name, rows]) => { const sheet = new Sheet(name); sheet.rows = structuredClone(rows); referenceSheets.set(name, sheet); });
+    externalSpreadsheets.set(id, { getSheetByName: name => referenceSheets.get(name) });
+  }
   const propertyStore = { getProperty: key => properties.get(key), setProperty: (key, value) => properties.set(key, value) };
-  const context = vm.createContext({ Date, console, PropertiesService: { getScriptProperties: () => propertyStore }, SpreadsheetApp: { create: () => spreadsheet, openById: id => { if (id !== 'DUMMY_DATABASE') throw new Error('unknown database'); return spreadsheet; } }, Logger: { log() {} }, Session: { getScriptTimeZone: () => 'Asia/Tokyo' }, Utilities: { getUuid: randomUUID, formatDate: (date, zone, format) => {
+  const context = vm.createContext({ Date, console, PropertiesService: { getScriptProperties: () => propertyStore }, SpreadsheetApp: { create: () => spreadsheet, openById: id => { if (id === 'DUMMY_DATABASE') return spreadsheet; if (externalSpreadsheets.has(id)) return externalSpreadsheets.get(id); throw new Error('unknown database'); } }, Logger: { log() {} }, Session: { getScriptTimeZone: () => 'Asia/Tokyo' }, Utilities: { getUuid: randomUUID, formatDate: (date, zone, format) => {
     const parts = Object.fromEntries(new Intl.DateTimeFormat('sv-SE', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(date).map(p => [p.type, p.value]));
     const day = `${parts.year}-${parts.month}-${parts.day}`, time = `${parts.hour}:${parts.minute}`;
     return format === 'yyyy-MM' ? `${parts.year}-${parts.month}` : format === 'yyyy-MM-dd' ? day : format === 'HH:mm' ? time : `${day}T${time}:${parts.second}`;
@@ -41,6 +46,6 @@ function createHarness() {
   for (const file of ['setup.gs', 'Code.gs']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../gas', file), 'utf8'), context, { filename: file });
   function post(request) { return JSON.parse(context.doPost({ postData: { contents: JSON.stringify(request) } }).text); }
   function admin(action, payload = {}) { const response = post({ ...payload, action, a: properties.get('ADMIN_TOKEN') }); if (!response.ok) throw Object.assign(new Error(response.message), { code: response.error }); return response.data; }
-  return { context, sheets, spreadsheet, properties, post, admin, get writes() { return writes; }, get locked() { return locked; } };
+  return { context, sheets, spreadsheet, properties, post, admin, addExternalSpreadsheet, get writes() { return writes; }, get locked() { return locked; } };
 }
 module.exports = { createHarness };

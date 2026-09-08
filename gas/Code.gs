@@ -118,7 +118,8 @@ function parentBootstrap_(auth) {
     attendanceCounts: attendanceCounts_(sessions),
     dutyAssignments: publicDutyAssignments_(sessions),
     places: activePlaces_(),
-    teachers: publicTeachers_()
+    teachers: publicTeachers_(),
+    references: referenceSources_(false)
   };
 }
 
@@ -174,7 +175,8 @@ function adminBootstrap_() {
     dutyOffers: latestRows_(readTable_('duty_offers'), function(row) { return row['保護者ID'] + '|' + row['予定ID']; }),
     dutyAssignments: dutyAssignments_(),
     events: latestRows_(readTable_('events'), function(row) { return row['予定ID']; }),
-    timelineItems: readTable_('timeline_items')
+    timelineItems: readTable_('timeline_items'),
+    references: referenceSources_(true)
   };
 }
 
@@ -574,6 +576,54 @@ function activePlaces_() {
 function sharedSchedule_() {
   const sessions = publishedSessions_();
   return { sessions: sessions, dutyAssignments: publicDutyAssignments_(sessions), attendanceCounts: attendanceCounts_(sessions), places: activePlaces_(), teachers: publicTeachers_() };
+}
+
+/** 既存の当番表・年間本番表を読み取り専用で画面用データへ整形する。 */
+function referenceSources_(includeAdmin) {
+  const properties = PropertiesService.getScriptProperties();
+  const dutyId = properties.getProperty('DUTY_GUIDE_SOURCE_SPREADSHEET_ID');
+  const annualId = properties.getProperty('ANNUAL_EVENTS_SOURCE_SPREADSHEET_ID');
+  if (!dutyId || !annualId) return { status: 'not_configured', guide: [], annualEvents: [] };
+  try {
+    return { status: 'ready', guide: parseDutyGuide_(referenceSheetValues_(dutyId, 'シート1')), annualEvents: parseAnnualEvents_(referenceSheetValues_(annualId, 'シート2'), includeAdmin) };
+  } catch (error) {
+    // 参照元の共有設定変更などで、通常の出席・当番入力まで止めない。
+    return { status: 'unavailable', guide: [], annualEvents: [] };
+  }
+}
+
+function referenceSheetValues_(spreadsheetId, sheetName) {
+  const sheet = SpreadsheetApp.openById(spreadsheetId).getSheetByName(sheetName);
+  if (!sheet) throw new Error('参照元シートが見つかりません。');
+  return sheet.getDataRange().getValues().map(function(row) { return row.map(function(value) { return String(value || '').trim(); }); });
+}
+
+function parseDutyGuide_(rows) {
+  const sections = [];
+  let current;
+  rows.forEach(function(row) {
+    const text = row[0]; const heading = text.match(/^【(.+)】$/);
+    if (heading) { current = { title: heading[1], items: [] }; sections.push(current); return; }
+    if (current && /^□/.test(text)) current.items.push(text.replace(/^□\s*/, ''));
+  });
+  const practiceRows = rows.filter(function(row) { return row.some(function(cell) { return /^(土曜日|午前|午後|[01]?\d:\d\d集合)$/.test(cell); }); });
+  const notes = rows.map(function(row) { return row[0]; }).filter(function(text) { return /^※|^1日練習/.test(text); });
+  return { introduction: rows[2] && rows[2][0] || '', practiceRows: practiceRows, notes: notes, sections: sections };
+}
+
+function parseAnnualEvents_(rows, includeAdmin) {
+  const headerIndex = rows.findIndex(function(row) { return row.indexOf('本番') >= 0; });
+  if (headerIndex < 0) return [];
+  const headers = rows[headerIndex]; const index = function(name) { return headers.indexOf(name); };
+  const value = function(row, name) { const column = index(name); return column >= 0 ? row[column] || '' : ''; };
+  let month = '';
+  return rows.slice(headerIndex + 1).reduce(function(events, row) {
+    if (row[0]) month = row[0];
+    const name = value(row, '本番'); if (!name) return events;
+    const event = { month: month, name: name, schedule: value(row, '日程'), venue: value(row, '場所'), duration: value(row, '演奏時間'), transport: value(row, '楽器運び'), instruments: value(row, '演奏できる楽器'), meeting: value(row, '事前打ち合わせ'), notes: value(row, 'その他') };
+    if (includeAdmin) event.contact = value(row, '連絡先');
+    events.push(event); return events;
+  }, []);
 }
 
 function requireRecords_(records) {
