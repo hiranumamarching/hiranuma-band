@@ -86,16 +86,18 @@
   function renderCards(panel) { panel.append(el('section', '本番が公開されると、保護者・お子さま別の個人カードをここで確認できます。', 'card')); }
   function renderGuide(panel) {
     const references = state.data.references || {};
-    if (references.status !== 'ready') { panel.append(el('section', references.status === 'not_configured' ? '当番ガイド・年間本番一覧は、管理者が参照元のスプレッドシートを設定すると表示されます。' : '当番ガイド・年間本番一覧を読み込めませんでした。時間をおいて再読み込みしてください。', 'card warning')); return; }
+    if (references.status !== 'ready') { panel.append(el('section', '当番ガイド・年間本番一覧は、管理者が元の資料をアプリへ取り込むと表示されます。', 'card warning')); return; }
     panel.append(pills([['duty', '当番ガイド'], ['events', '年間本番一覧']], state.guideTab, id => { state.guideTab = id; render(); }, 'ガイドの種類'));
     if (state.guideTab === 'duty') renderDutyGuide(panel, references.guide || {}); else renderAnnualEvents(panel, references.annualEvents || []);
   }
   function renderDutyGuide(panel, guide) {
-    const intro = el('section', undefined, 'card guide-intro'); intro.append(el('h2', '当番の基本業務'), el('p', guide.introduction || '当番ガイドを準備中です。'));
-    (guide.practiceRows || []).forEach(row => intro.append(el('p', row.filter(Boolean).join(' · '), 'muted')));
-    (guide.notes || []).forEach(note => intro.append(el('p', note, 'notice'))); panel.append(intro);
-    (guide.sections || []).forEach((section, index) => {
-      const card = el('section', undefined, 'card guide-step'); const number = el('strong', String(index + 1)); const body = el('div'); body.append(el('h2', section.title)); const list = el('ul', undefined, 'checklist'); (section.items || []).forEach(item => list.append(el('li', item))); body.append(list); card.append(number, body); panel.append(card);
+    const items = guide.items || [];
+    let card, list;
+    items.forEach(item => {
+      if (item.type === '見出し') { card = el('section', undefined, 'card guide-step'); const body = el('div'); body.append(el('h2', item.content)); card.append(el('strong', String((panel.querySelectorAll('.guide-step').length) + 1)), body); panel.append(card); list = undefined; return; }
+      if (!card) { card = el('section', undefined, 'card guide-intro'); card.append(el('h2', '当番ガイド')); panel.append(card); }
+      if (item.type === '手順') { if (!list) { list = el('ul', undefined, 'checklist'); card.append(list); } list.append(el('li', item.content)); }
+      else card.append(el('p', item.content, item.content.startsWith('※') ? 'notice' : 'muted'));
     });
   }
   function renderAnnualEvents(panel, events) {

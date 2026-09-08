@@ -77,6 +77,10 @@ function handleWrite_(request) {
     case 'admin_save_timeline_items':
     case 'admin_save_teacher_availability':
     case 'admin_save_place':
+    case 'admin_import_references':
+    case 'admin_save_guide_items':
+    case 'admin_save_annual_event_candidates':
+    case 'admin_backup_references':
     case 'admin_publish_month':
       requireRole_(auth, 'admin');
       return { ok: true, data: saveAdmin_(request) };
@@ -258,6 +262,14 @@ function saveAdmin_(request) {
       return adminSaveTeacherAvailability_(request.records || []);
     case 'admin_save_place':
       return adminSavePlace_(request);
+    case 'admin_import_references':
+      return adminImportReferences_();
+    case 'admin_save_guide_items':
+      return adminSaveGuideItems_(request.records || []);
+    case 'admin_save_annual_event_candidates':
+      return adminSaveAnnualEventCandidates_(request.records || []);
+    case 'admin_backup_references':
+      return adminBackupReferences_();
     case 'admin_publish_month':
       return adminPublishMonth_(request.monthId);
     default:
@@ -578,18 +590,98 @@ function sharedSchedule_() {
   return { sessions: sessions, dutyAssignments: publicDutyAssignments_(sessions), attendanceCounts: attendanceCounts_(sessions), places: activePlaces_(), teachers: publicTeachers_() };
 }
 
-/** 既存の当番表・年間本番表を読み取り専用で画面用データへ整形する。 */
+/**
+ * 表示元はアプリ用DB。初回だけ既存シートから取り込み、その後の編集履歴もここに追記する。
+ * 元の当番表・年間本番表は、取り込み時以外は参照も書き込みもしない。
+ */
 function referenceSources_(includeAdmin) {
-  const properties = PropertiesService.getScriptProperties();
-  const dutyId = properties.getProperty('DUTY_GUIDE_SOURCE_SPREADSHEET_ID');
-  const annualId = properties.getProperty('ANNUAL_EVENTS_SOURCE_SPREADSHEET_ID');
-  if (!dutyId || !annualId) return { status: 'not_configured', guide: [], annualEvents: [] };
-  try {
-    return { status: 'ready', guide: parseDutyGuide_(referenceSheetValues_(dutyId, 'シート1')), annualEvents: parseAnnualEvents_(referenceSheetValues_(annualId, 'シート2'), includeAdmin) };
-  } catch (error) {
-    // 参照元の共有設定変更などで、通常の出席・当番入力まで止めない。
-    return { status: 'unavailable', guide: [], annualEvents: [] };
-  }
+  const guideItems = latestRows_(readTable_('guide_items'), function(row) { return row['項目ID']; }).filter(function(row) { return asBoolean_(row['有効']); }).sort(referenceOrder_);
+  const candidates = latestRows_(readTable_('annual_event_candidates'), function(row) { return row['候補ID']; }).filter(function(row) { return asBoolean_(row['有効']); }).sort(referenceOrder_);
+  if (!guideItems.length && !candidates.length) return { status: 'not_imported', guide: { items: [] }, annualEvents: [] };
+  return {
+    status: 'ready',
+    guide: { items: guideItems.map(function(row) { return { id: row['項目ID'], type: row['種別'], section: row['区分'], order: row['並び順'], content: row['内容'], active: true }; }) },
+    annualEvents: candidates.map(function(row) {
+      const event = { id: row['候補ID'], order: row['並び順'], month: row['月'], name: row['本番名'], schedule: row['日程'], venue: row['場所'], duration: row['演奏時間'], transport: row['楽器運び'], instruments: row['演奏できる楽器'], meeting: row['事前打ち合わせ'], notes: row['その他'], active: true };
+      if (includeAdmin) event.contact = row['連絡先'];
+      return event;
+    })
+  };
+}
+
+function referenceOrder_(left, right) {
+  return (Number(left['並び順']) || 0) - (Number(right['並び順']) || 0);
+}
+
+function adminImportReferences_() {
+  return withWriteLock_(function() {
+    if (readTable_('guide_items').length || readTable_('annual_event_candidates').length) throw apiError_(API_ERROR.INVALID_REQUEST, 'すでに取り込み済みです。編集は「ガイド・本番候補」タブから行ってください。');
+    const properties = PropertiesService.getScriptProperties();
+    const dutyId = properties.getProperty('DUTY_GUIDE_SOURCE_SPREADSHEET_ID');
+    const annualId = properties.getProperty('ANNUAL_EVENTS_SOURCE_SPREADSHEET_ID');
+    if (!dutyId || !annualId) throw apiError_(API_ERROR.NOT_CONFIGURED, 'GASのスクリプト プロパティに、元シート2件のIDを設定してください。');
+    const guideItems = sourceGuideItems_(referenceSheetValues_(dutyId, 'シート1'));
+    const candidates = sourceAnnualEventCandidates_(referenceSheetValues_(annualId, 'シート2'));
+    if (!guideItems.length && !candidates.length) throw apiError_(API_ERROR.INVALID_REQUEST, '元シートに取り込める内容がありません。');
+    if (guideItems.length) appendObjects_('guide_items', guideItems);
+    if (candidates.length) appendObjects_('annual_event_candidates', candidates);
+    return { guideItems: guideItems.length, annualEvents: candidates.length };
+  });
+}
+
+function sourceGuideItems_(rows) {
+  let section = '案内';
+  return rows.reduce(function(items, row, index) {
+    const cells = row.filter(function(value) { return String(value || '').trim(); });
+    if (!cells.length) return items;
+    const content = cells.join(' · ');
+    const heading = String(cells[0]).match(/^【(.+)】$/);
+    const type = heading ? '見出し' : /^□/.test(String(cells[0])) ? '手順' : '本文';
+    if (heading) section = heading[1];
+    items.push({ '項目ID': 'GI-SOURCE-' + String(index + 1).padStart(3, '0'), '種別': type, '区分': section, '並び順': index + 1, '内容': heading ? heading[1] : content.replace(/^□\s*/, ''), '有効': true, '更新時刻': new Date() });
+    return items;
+  }, []);
+}
+
+function sourceAnnualEventCandidates_(rows) {
+  const parsed = parseAnnualEvents_(rows, true);
+  return parsed.map(function(event, index) {
+    return { '候補ID': 'AEC-SOURCE-' + String(index + 1).padStart(3, '0'), '並び順': index + 1, '月': event.month, '本番名': event.name, '日程': event.schedule, '場所': event.venue, '演奏時間': event.duration, '楽器運び': event.transport, '演奏できる楽器': event.instruments, '連絡先': event.contact || '', '事前打ち合わせ': event.meeting, 'その他': event.notes, '有効': true, '更新時刻': new Date() };
+  });
+}
+
+function adminSaveGuideItems_(records) {
+  return withWriteLock_(function() {
+    requireRecords_(records);
+    const rows = records.map(function(record) {
+      const type = String(record['種別'] || '本文');
+      if (['本文', '見出し', '手順'].indexOf(type) < 0) throw apiError_(API_ERROR.INVALID_REQUEST, 'ガイド項目の種類が不正です。');
+      const content = String(record['内容'] || '').trim();
+      if (!record['項目ID'] || (asBoolean_(record['有効']) && !content)) throw apiError_(API_ERROR.INVALID_REQUEST, 'ガイドの内容を入力してください。');
+      return { '項目ID': String(record['項目ID']), '種別': type, '区分': String(record['区分'] || '案内').trim(), '並び順': Number(record['並び順']) || 0, '内容': content, '有効': asBoolean_(record['有効']), '更新時刻': new Date() };
+    });
+    appendObjects_('guide_items', rows); return { saved: rows.length };
+  });
+}
+
+function adminSaveAnnualEventCandidates_(records) {
+  return withWriteLock_(function() {
+    requireRecords_(records);
+    const rows = records.map(function(record) {
+      const name = String(record['本番名'] || '').trim();
+      if (!record['候補ID'] || (asBoolean_(record['有効']) && !name)) throw apiError_(API_ERROR.INVALID_REQUEST, '本番名を入力してください。');
+      return { '候補ID': String(record['候補ID']), '並び順': Number(record['並び順']) || 0, '月': String(record['月'] || '').trim(), '本番名': name, '日程': String(record['日程'] || '').trim(), '場所': String(record['場所'] || '').trim(), '演奏時間': String(record['演奏時間'] || '').trim(), '楽器運び': String(record['楽器運び'] || '').trim(), '演奏できる楽器': String(record['演奏できる楽器'] || '').trim(), '連絡先': String(record['連絡先'] || '').trim(), '事前打ち合わせ': String(record['事前打ち合わせ'] || '').trim(), 'その他': String(record['その他'] || '').trim(), '有効': asBoolean_(record['有効']), '更新時刻': new Date() };
+    });
+    appendObjects_('annual_event_candidates', rows); return { saved: rows.length };
+  });
+}
+
+function adminBackupReferences_() {
+  return withWriteLock_(function() {
+    const snapshot = { guideItems: latestRows_(readTable_('guide_items'), function(row) { return row['項目ID']; }), annualEvents: latestRows_(readTable_('annual_event_candidates'), function(row) { return row['候補ID']; }) };
+    appendObjects_('reference_backups', [{ 'バックアップID': 'RB-' + Utilities.getUuid(), '種別': 'ガイド・年間本番候補', '内容JSON': JSON.stringify(snapshot), '作成時刻': new Date() }]);
+    return { backedUp: true };
+  });
 }
 
 function referenceSheetValues_(spreadsheetId, sheetName) {

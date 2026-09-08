@@ -4,13 +4,15 @@
   const $ = id => document.getElementById(id);
   const bool = v => v === true || v === 'true' || v === 1 || v === '1' || v === '○';
   const roles = ['当番'];
-  const tabs = [['month', '月設定'], ['schedule', '先生・予定'], ['duty', '集計・当番'], ['publish', '公開確認']];
-  const dirty = { sessions: new Set(), selfPractice: new Set(), dutyAssignments: new Set(), teacherAvailability: new Set() };
+  const tabs = [['month', '月設定'], ['schedule', '先生・予定'], ['duty', '集計・当番'], ['publish', '公開確認'], ['references', 'ガイド・本番候補']];
+  const dirty = { sessions: new Set(), selfPractice: new Set(), dutyAssignments: new Set(), teacherAvailability: new Set(), guideItems: new Set(), annualEvents: new Set() };
   const today = new Date();
   let monthId = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
   let tab = 'month', data, busy = false, monthDirty = false, deadlineDraft;
   const dutyKey = r => [r['予定ID'], r['役割'], r['区分']].join('|');
   const availabilityKey = r => [r['先生ID'], r['予定ID'], r['枠']].join('|');
+  const guideKey = r => r.id;
+  const annualEventKey = r => r.id;
   const monthKey = value => String(value || '').trim().slice(0, 7);
   const teacherIds = value => [...new Set(String(value || '').split(',').map(id => id.trim()).filter(Boolean))];
   const practiceTimes = session => {
@@ -80,7 +82,7 @@
       const b = button(label, () => { tab = id; render(); }, tab === id); b.setAttribute('aria-controls', 'panel'); return b;
     }));
     $('panel').replaceChildren();
-    ({ month: renderMonth, schedule: renderSchedule, duty: renderDuty, publish: renderPublish })[tab]();
+    ({ month: renderMonth, schedule: renderSchedule, duty: renderDuty, publish: renderPublish, references: renderReferences })[tab]();
     updateSaveState();
   }
   function switchMonth(next) {
@@ -302,6 +304,59 @@
     };
     renderRole(); card.append(rolePicker); return card;
   }
+  function renderReferences() {
+    const panel = $('panel'); const references = data.references || {};
+    const intro = el('section', undefined, 'card'); intro.append(el('h2', '当番ガイド・年間本番候補'), el('p', 'ここで保存した内容を保護者画面に表示します。元のスプレッドシートは初回取り込み時以外、変更しません。', 'muted')); panel.append(intro);
+    if (references.status !== 'ready') {
+      const card = el('section', undefined, 'card'); card.append(el('h2', '元の資料を取り込む'));
+      card.append(el('p', '初回だけ、当番ガイドと年間本番一覧の内容をアプリ用DBへコピーします。取り込み後はこの画面で編集でき、元のシートはそのまま保管されます。'));
+      card.append(button('元のスプレッドシートから取り込む', () => run(async () => { await api.request('admin_import_references'); await load(); }, '元の資料を取り込みました。内容を確認・編集できます。'), undefined, 'primary'));
+      panel.append(card); return;
+    }
+    const guide = references.guide?.items || []; const events = references.annualEvents || [];
+    panel.append(referenceGuideEditor(guide), referenceEventEditor(events), referenceBackup());
+  }
+  function referenceGuideEditor(items) {
+    const card = el('section', undefined, 'card'); card.append(el('h2', '当番ガイド'));
+    card.append(el('p', '元の資料の行をすべて取り込んでいます。本文・見出し・手順を必要に応じて直してください。', 'muted'));
+    const list = el('div');
+    const draw = () => {
+      list.replaceChildren();
+      items.filter(item => item.active !== false).sort((a, b) => Number(a.order) - Number(b.order)).forEach(item => {
+        const row = el('article', undefined, 'slot');
+        const set = (key, value) => { item[key] = value; mark('guideItems', guideKey(item)); };
+        row.append(pills([['本文', '本文'], ['見出し', '見出し'], ['手順', '手順']], item.type || '本文', value => { set('type', value); draw(); }, '項目の種類'));
+        row.append(field('内容', item.content, value => set('content', value), 'textarea'));
+        row.append(button('この項目を外す', () => { item.active = false; mark('guideItems', guideKey(item)); draw(); }, undefined, 'danger'));
+        list.append(row);
+      });
+    };
+    draw();
+    card.append(list, button('項目を追加', () => { const item = { id: `GI-${crypto.randomUUID()}`, type: '手順', section: '追加', order: Math.max(0, ...items.map(row => Number(row.order) || 0)) + 1, content: '', active: true }; items.push(item); mark('guideItems', guideKey(item)); draw(); }));
+    return card;
+  }
+  function referenceEventEditor(events) {
+    const card = el('section', undefined, 'card'); card.append(el('h2', '年間本番候補'), el('p', '連絡先は管理者だけに保存・表示されます。実施が決まった本番を当月の正式予定にする機能は、次の本番管理画面で追加します。', 'muted'));
+    const list = el('div');
+    const draw = () => {
+      list.replaceChildren();
+      events.filter(event => event.active !== false).sort((a, b) => Number(a.order) - Number(b.order)).forEach(event => {
+        const details = document.createElement('details'); details.className = 'slot'; const summary = document.createElement('summary'); summary.textContent = `${event.month || '月未定'} · ${event.name || '本番名未入力'}　${event.schedule || ''}`; details.append(summary);
+        const body = el('div'); const set = (key, value) => { event[key] = value; mark('annualEvents', annualEventKey(event)); };
+        const fields = [['本番名', 'name'], ['月', 'month'], ['日程の目安', 'schedule'], ['場所', 'venue'], ['演奏時間', 'duration'], ['楽器運び', 'transport'], ['演奏できる楽器', 'instruments'], ['連絡先（管理者のみ）', 'contact'], ['事前打合せ', 'meeting']];
+        const grid = el('div', undefined, 'grid'); fields.forEach(([label, key]) => grid.append(field(label, event[key], value => set(key, value)))); body.append(grid, field('その他・注意事項', event.notes, value => set('notes', value), 'textarea'));
+        body.append(button('候補から外す', () => { event.active = false; mark('annualEvents', annualEventKey(event)); draw(); }, undefined, 'danger')); details.append(body); list.append(details);
+      });
+    };
+    draw();
+    card.append(list, button('本番候補を追加', () => { const event = { id: `AEC-${crypto.randomUUID()}`, order: Math.max(0, ...events.map(row => Number(row.order) || 0)) + 1, month: '', name: '', schedule: '', venue: '', duration: '', transport: '', instruments: '', contact: '', meeting: '', notes: '', active: true }; events.push(event); mark('annualEvents', annualEventKey(event)); draw(); }));
+    return card;
+  }
+  function referenceBackup() {
+    const card = el('section', undefined, 'card'); card.append(el('h2', '保存・バックアップ'));
+    card.append(el('p', '「変更を保存」でアプリ用スプレッドシートへ履歴を残します。さらに現在の内容を1件のバックアップとして保存できます。', 'muted'));
+    card.append(button('いまバックアップを作成', () => run(async () => { await api.request('admin_backup_references'); }, '現在のガイド・本番候補をバックアップしました。'))); return card;
+  }
   function renderPublish() {
     if (!requireMonth()) return;
     const panel = $('panel'); const card = el('section', undefined, 'card'); card.append(el('h2', '公開前チェック'));
@@ -319,6 +374,8 @@
       ['sessions', 'admin_save_sessions', s => s['予定ID'], rows => rows],
       ['selfPractice', 'admin_save_selfpractice', s => s['予定ID'], rows => rows],
       ['dutyAssignments', 'admin_save_duty_assignments', dutyKey, rows => rows],
+      ['guideItems', 'admin_save_guide_items', guideKey, rows => rows.map(item => ({ '項目ID': item.id, '種別': item.type, '区分': item.section, '並び順': item.order, '内容': item.content, '有効': item.active !== false }))],
+      ['annualEvents', 'admin_save_annual_event_candidates', annualEventKey, rows => rows.map(event => ({ '候補ID': event.id, '並び順': event.order, '月': event.month, '本番名': event.name, '日程': event.schedule, '場所': event.venue, '演奏時間': event.duration, '楽器運び': event.transport, '演奏できる楽器': event.instruments, '連絡先': event.contact, '事前打ち合わせ': event.meeting, 'その他': event.notes, '有効': event.active !== false }))],
       ['teacherAvailability', 'admin_save_teacher_availability', availabilityKey, rows => rows.filter(r => {
         const s = data.sessions.find(s => s['予定ID'] === r['予定ID']); return slots(s).some(([, label]) => label === r['枠']);
       }).map(r => ({ teacherId: r['先生ID'], sessionId: r['予定ID'], slot: r['枠'], availability: r['可否'] }))]

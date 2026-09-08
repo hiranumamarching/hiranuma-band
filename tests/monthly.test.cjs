@@ -26,7 +26,7 @@ test('場所マスターは平沼小学校だけを初期表示し、任意の�
   assert.throws(() => h.admin('admin_save_place', { name: '西公会堂' }), /既にあります/);
 });
 
-test('当番ガイド・年間本番一覧は外部シートを読取専用で整形し、保護者へ連絡先を返さない', () => {
+test('当番ガイド・年間本番一覧を初回だけ外部シートからアプリDBへ取り込み、保護者へ連絡先を返さない', () => {
   const h = fresh();
   h.properties.set('DUTY_GUIDE_SOURCE_SPREADSHEET_ID', 'DUTY_SOURCE'); h.properties.set('ANNUAL_EVENTS_SOURCE_SPREADSHEET_ID', 'EVENT_SOURCE');
   h.addExternalSpreadsheet('DUTY_SOURCE', { 'シート1': [
@@ -35,8 +35,15 @@ test('当番ガイド・年間本番一覧は外部シートを読取専用で�
   h.addExternalSpreadsheet('EVENT_SOURCE', { 'シート2': [
     ['年間本番スケジュール'], ['', '本番', '日程', '場所', '演奏時間', '楽器運び', '演奏できる楽器', '連絡先', '事前打ち合わせ', 'その他'], ['7月', '納涼祭', '中旬土曜', '西公会堂', '20分', 'トラック有', '何でも', '運営連絡先', '有', '雨天中止']
   ] });
+  assert.equal(parent(h).data.references.status, 'not_imported');
+  const imported = h.admin('admin_import_references'); assert.equal(imported.guideItems, 10); assert.equal(imported.annualEvents, 1);
   const parentReferences = parent(h).data.references; const adminReferences = bootstrap(h).references;
-  assert.equal(parentReferences.status, 'ready'); assert.equal(parentReferences.guide.sections[0].items.length, 2); assert.equal(parentReferences.annualEvents[0].name, '納涼祭'); assert(!('contact' in parentReferences.annualEvents[0])); assert.equal(adminReferences.annualEvents[0].contact, '運営連絡先');
+  assert.equal(parentReferences.status, 'ready'); assert(parentReferences.guide.items.some(item => item.content === '門の鍵を開ける')); assert.equal(parentReferences.annualEvents[0].name, '納涼祭'); assert(!('contact' in parentReferences.annualEvents[0])); assert.equal(adminReferences.annualEvents[0].contact, '運営連絡先');
+  assert.throws(() => h.admin('admin_import_references'), /すでに取り込み済み/);
+  h.admin('admin_save_guide_items', { records: [{ '項目ID': 'GI-SOURCE-010', '種別': '手順', '区分': '練習後', '並び順': 10, '内容': '鍵を返却する（更新）', '有効': true }] });
+  h.admin('admin_save_annual_event_candidates', { records: [{ '候補ID': 'AEC-SOURCE-001', '並び順': 1, '月': '7月', '本番名': '納涼祭', '日程': '中旬土曜', '場所': '西公会堂', '演奏時間': '20分', '楽器運び': 'トラック有', '演奏できる楽器': '何でも', '連絡先': '更新した連絡先', '事前打ち合わせ': '有', 'その他': '雨天中止', '有効': true }] });
+  assert(parent(h).data.references.guide.items.some(item => item.content === '鍵を返却する（更新）')); assert(!JSON.stringify(parent(h).data.references).includes('更新した連絡先'));
+  assert(h.admin('admin_backup_references').backedUp); assert.equal(h.sheets.get('reference_backups').getLastRow(), 2);
 });
 
 test('旧スキーマ移行は既存列/行を保存・両枠コピー・本番PM空・再実行可能', () => {
