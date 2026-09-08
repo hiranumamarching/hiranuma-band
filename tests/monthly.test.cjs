@@ -43,6 +43,8 @@ test('当番ガイド・年間本番一覧を初回だけ外部シートから�
   h.admin('admin_save_guide_items', { records: [{ '項目ID': 'GI-SOURCE-010', '種別': '手順', '区分': '練習後', '並び順': 10, '内容': '鍵を返却する（更新）', '有効': true }] });
   h.admin('admin_save_annual_event_candidates', { records: [{ '候補ID': 'AEC-SOURCE-001', '並び順': 1, '月': '7月', '本番名': '納涼祭', '日程': '中旬土曜', '場所': '西公会堂', '演奏時間': '20分', '楽器運び': 'トラック有', '演奏できる楽器': '何でも', '連絡先': '更新した連絡先', '事前打ち合わせ': '有', 'その他': '雨天中止', '有効': true }] });
   assert(parent(h).data.references.guide.items.some(item => item.content === '鍵を返却する（更新）')); assert(!JSON.stringify(parent(h).data.references).includes('更新した連絡先'));
+  h.admin('admin_save_guide_items', { records: [{ '項目ID': 'GI-SOURCE-010', '種別': '手順', '区分': '練習後', '並び順': 10, '内容': '', '有効': true }] });
+  assert(!parent(h).data.references.guide.items.some(item => item.id === 'GI-SOURCE-010'));
   assert(h.admin('admin_backup_references').backedUp); assert.equal(h.sheets.get('reference_backups').getLastRow(), 2);
 });
 

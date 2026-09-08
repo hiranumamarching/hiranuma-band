@@ -657,8 +657,8 @@ function adminSaveGuideItems_(records) {
       const type = String(record['種別'] || '本文');
       if (['本文', '見出し', '手順'].indexOf(type) < 0) throw apiError_(API_ERROR.INVALID_REQUEST, 'ガイド項目の種類が不正です。');
       const content = String(record['内容'] || '').trim();
-      if (!record['項目ID'] || (asBoolean_(record['有効']) && !content)) throw apiError_(API_ERROR.INVALID_REQUEST, 'ガイドの内容を入力してください。');
-      return { '項目ID': String(record['項目ID']), '種別': type, '区分': String(record['区分'] || '案内').trim(), '並び順': Number(record['並び順']) || 0, '内容': content, '有効': asBoolean_(record['有効']), '更新時刻': new Date() };
+      if (!record['項目ID']) throw apiError_(API_ERROR.INVALID_REQUEST, 'ガイド項目IDが不正です。');
+      return { '項目ID': String(record['項目ID']), '種別': type, '区分': String(record['区分'] || '案内').trim(), '並び順': Number(record['並び順']) || 0, '内容': content, '有効': asBoolean_(record['有効']) && !!content, '更新時刻': new Date() };
     });
     appendObjects_('guide_items', rows); return { saved: rows.length };
   });

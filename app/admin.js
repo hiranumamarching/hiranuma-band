@@ -318,7 +318,7 @@
   }
   function referenceGuideEditor(items) {
     const card = el('section', undefined, 'card'); card.append(el('h2', '当番ガイド'));
-    card.append(el('p', '元の資料の行をすべて取り込んでいます。本文・見出し・手順を必要に応じて直してください。', 'muted'));
+    card.append(el('p', '元の資料の行をすべて取り込んでいます。本文・見出し・手順を選んで編集してください。文章を空欄にして保存すると、その行は表示されなくなります。', 'muted'));
     const list = el('div');
     const draw = () => {
       list.replaceChildren();
@@ -327,7 +327,6 @@
         const set = (key, value) => { item[key] = value; mark('guideItems', guideKey(item)); };
         row.append(pills([['本文', '本文'], ['見出し', '見出し'], ['手順', '手順']], item.type || '本文', value => { set('type', value); draw(); }, '項目の種類'));
         row.append(field('内容', item.content, value => set('content', value), 'textarea'));
-        row.append(button('この項目を外す', () => { item.active = false; mark('guideItems', guideKey(item)); draw(); }, undefined, 'danger'));
         list.append(row);
       });
     };
@@ -374,7 +373,7 @@
       ['sessions', 'admin_save_sessions', s => s['予定ID'], rows => rows],
       ['selfPractice', 'admin_save_selfpractice', s => s['予定ID'], rows => rows],
       ['dutyAssignments', 'admin_save_duty_assignments', dutyKey, rows => rows],
-      ['guideItems', 'admin_save_guide_items', guideKey, rows => rows.map(item => ({ '項目ID': item.id, '種別': item.type, '区分': item.section, '並び順': item.order, '内容': item.content, '有効': item.active !== false }))],
+      ['guideItems', 'admin_save_guide_items', guideKey, rows => rows.map(item => ({ '項目ID': item.id, '種別': item.type, '区分': item.section, '並び順': item.order, '内容': item.content, '有効': item.active !== false && String(item.content || '').trim() !== '' }))],
       ['annualEvents', 'admin_save_annual_event_candidates', annualEventKey, rows => rows.map(event => ({ '候補ID': event.id, '並び順': event.order, '月': event.month, '本番名': event.name, '日程': event.schedule, '場所': event.venue, '演奏時間': event.duration, '楽器運び': event.transport, '演奏できる楽器': event.instruments, '連絡先': event.contact, '事前打ち合わせ': event.meeting, 'その他': event.notes, '有効': event.active !== false }))],
       ['teacherAvailability', 'admin_save_teacher_availability', availabilityKey, rows => rows.filter(r => {
         const s = data.sessions.find(s => s['予定ID'] === r['予定ID']); return slots(s).some(([, label]) => label === r['枠']);
