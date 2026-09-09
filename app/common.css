@@ -187,6 +187,26 @@ input[type=checkbox] {
   margin-top:18px;
   padding-top:4px;
 }
+.roster-card {
+  margin:10px 0;
+  padding:14px;
+}
+.roster-card h2 {
+  margin-bottom:8px;
+}
+.roster-card label {
+  margin:6px 0;
+}
+.roster-person {
+  margin-top:10px;
+  padding-top:8px;
+}
+.roster-person h3 {
+  margin:4px 0;
+}
+.roster-person .grid {
+  gap:8px;
+}
 .table-wrap {
   overflow-x:auto;
 }

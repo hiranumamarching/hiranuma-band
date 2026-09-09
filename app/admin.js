@@ -318,7 +318,7 @@
     households.sort((a, b) => Number(bool(b['在籍'])) - Number(bool(a['在籍'])) || String(a['家庭名']).localeCompare(String(b['家庭名']))).forEach(household => panel.append(familyCard(household, guardians, members)));
   }
   function familyCard(household, guardians, members) {
-    const card = el('article', undefined, 'card'); const activeLabel = bool(household['在籍']) ? '在籍中' : '在籍終了';
+    const card = el('article', undefined, 'card roster-card'); const activeLabel = bool(household['在籍']) ? '在籍中' : '在籍終了';
     const head = el('div', undefined, 'row'); head.append(el('h2', household['家庭名'] || '新しい家庭'), el('span', activeLabel, 'badge'));
     head.append(button(bool(household['在籍']) ? '在籍を終了' : '在籍に戻す', () => { household['在籍'] = !bool(household['在籍']); mark('households', rosterKeys.households(household)); render(); })); card.append(head);
     card.append(field('家庭の表示名', household['家庭名'], value => { household['家庭名'] = value; mark('households', rosterKeys.households(household)); }));
@@ -329,12 +329,12 @@
     card.append(button('お子さまを追加', () => { const member = { '子どもID': `M-${crypto.randomUUID()}`, '家庭ID': household['家庭ID'], '氏名': '', '基本担当楽器': '', '在籍': true }; members.push(member); mark('members', rosterKeys.members(member)); render(); })); return card;
   }
   function guardianEditor(guardian) {
-    const section = el('section', undefined, 'slot'); section.append(el('h3', `保護者${bool(guardian['在籍']) ? '' : '（在籍終了）'}`));
+    const section = el('section', undefined, 'slot roster-person'); section.append(el('h3', `保護者${bool(guardian['在籍']) ? '' : '（在籍終了）'}`));
     const set = (key, value) => { guardian[key] = value; mark('guardians', rosterKeys.guardians(guardian)); };
     const grid = el('div', undefined, 'grid'); grid.append(field('表示名', guardian['表示名'], value => set('表示名', value)), field('対応できること（任意）', guardian['対応可能な役割'], value => set('対応可能な役割', value))); section.append(grid, button(bool(guardian['在籍']) ? 'この保護者を在籍終了にする' : 'この保護者を在籍に戻す', () => { set('在籍', !bool(guardian['在籍'])); render(); }, undefined, bool(guardian['在籍']) ? 'danger' : undefined)); return section;
   }
   function memberEditor(member) {
-    const section = el('section', undefined, 'slot'); section.append(el('h3', `お子さま${bool(member['在籍']) ? '' : '（在籍終了）'}`));
+    const section = el('section', undefined, 'slot roster-person'); section.append(el('h3', `お子さま${bool(member['在籍']) ? '' : '（在籍終了）'}`));
     const set = (key, value) => { member[key] = value; mark('members', rosterKeys.members(member)); };
     const grid = el('div', undefined, 'grid'); grid.append(field('氏名', member['氏名'], value => set('氏名', value)), field('基本担当楽器（任意）', member['基本担当楽器'], value => set('基本担当楽器', value))); section.append(grid, button(bool(member['在籍']) ? 'このお子さまを在籍終了にする' : 'このお子さまを在籍に戻す', () => { set('在籍', !bool(member['在籍'])); render(); }, undefined, bool(member['在籍']) ? 'danger' : undefined)); return section;
   }
@@ -342,7 +342,7 @@
     panel.append(el('p', '候補日入力に表示する先生です。スマホを使わない先生も、ここには登録し、可否は管理者が「先生・予定」タブで代理入力できます。', 'muted'));
     panel.append(button('先生を追加', () => { const teacher = { '先生ID': `T-${crypto.randomUUID()}`, '氏名': '', '在籍': true }; data.masters.teachers.push(teacher); mark('teachers', rosterKeys.teachers(teacher)); render(); }, undefined, 'primary'));
     data.masters.teachers.sort((a, b) => Number(bool(b['在籍'])) - Number(bool(a['在籍'])) || String(a['氏名']).localeCompare(String(b['氏名']))).forEach(teacher => {
-      const card = el('article', undefined, 'card'); card.append(el('h2', teacher['氏名'] || '新しい先生'), el('span', bool(teacher['在籍']) ? '在籍中' : '在籍終了', 'badge'));
+      const card = el('article', undefined, 'card roster-card'); card.append(el('h2', teacher['氏名'] || '新しい先生'), el('span', bool(teacher['在籍']) ? '在籍中' : '在籍終了', 'badge'));
       card.append(field('氏名', teacher['氏名'], value => { teacher['氏名'] = value; mark('teachers', rosterKeys.teachers(teacher)); }));
       card.append(button(bool(teacher['在籍']) ? 'この先生を在籍終了にする' : 'この先生を在籍に戻す', () => { teacher['在籍'] = !bool(teacher['在籍']); mark('teachers', rosterKeys.teachers(teacher)); render(); }, undefined, bool(teacher['在籍']) ? 'danger' : undefined)); panel.append(card);
     });
