@@ -320,7 +320,7 @@
   function familyCard(household, guardians, members) {
     const card = el('article', undefined, 'card roster-card'); const activeLabel = bool(household['在籍']) ? '在籍中' : '在籍終了';
     const head = el('div', undefined, 'row'); head.append(el('h2', household['家庭名'] || '新しい家庭'), el('span', activeLabel, 'badge'));
-    head.append(button(bool(household['在籍']) ? '削除' : '復帰', () => { household['在籍'] = !bool(household['在籍']); mark('households', rosterKeys.households(household)); render(); }, undefined, bool(household['在籍']) ? 'danger' : undefined)); card.append(head);
+    head.append(button(bool(household['在籍']) ? '削除' : '復帰', () => { if (bool(household['在籍']) && !confirm(`「${household['家庭名'] || 'この家庭'}」を削除しますか？保護者・お子さまの履歴は残り、あとで復帰できます。`)) return; household['在籍'] = !bool(household['在籍']); mark('households', rosterKeys.households(household)); render(); }, undefined, bool(household['在籍']) ? 'danger' : undefined)); card.append(head);
     card.append(field('家庭の表示名', household['家庭名'], value => { household['家庭名'] = value; mark('households', rosterKeys.households(household)); }));
     const familyGuardians = guardians.filter(row => row['家庭ID'] === household['家庭ID']); const familyMembers = members.filter(row => row['家庭ID'] === household['家庭ID']);
     familyGuardians.forEach(guardian => card.append(guardianEditor(guardian)));
@@ -331,12 +331,12 @@
   function guardianEditor(guardian) {
     const section = el('section', undefined, 'slot roster-person'); section.append(el('h3', `保護者${bool(guardian['在籍']) ? '' : '（在籍終了）'}`));
     const set = (key, value) => { guardian[key] = value; mark('guardians', rosterKeys.guardians(guardian)); };
-    const grid = el('div', undefined, 'grid'); grid.append(field('表示名', guardian['表示名'], value => set('表示名', value)), field('対応できること（任意）', guardian['対応可能な役割'], value => set('対応可能な役割', value))); section.append(grid, button(bool(guardian['在籍']) ? '削除' : '復帰', () => { set('在籍', !bool(guardian['在籍'])); render(); }, undefined, bool(guardian['在籍']) ? 'danger' : undefined)); return section;
+    const grid = el('div', undefined, 'grid'); grid.append(field('表示名', guardian['表示名'], value => set('表示名', value)), field('対応できること（任意）', guardian['対応可能な役割'], value => set('対応可能な役割', value))); section.append(grid, button(bool(guardian['在籍']) ? '削除' : '復帰', () => { if (bool(guardian['在籍']) && !confirm(`「${guardian['表示名'] || 'この保護者'}」を削除しますか？あとで復帰できます。`)) return; set('在籍', !bool(guardian['在籍'])); render(); }, undefined, bool(guardian['在籍']) ? 'danger' : undefined)); return section;
   }
   function memberEditor(member) {
     const section = el('section', undefined, 'slot roster-person'); section.append(el('h3', `お子さま${bool(member['在籍']) ? '' : '（在籍終了）'}`));
     const set = (key, value) => { member[key] = value; mark('members', rosterKeys.members(member)); };
-    const grid = el('div', undefined, 'grid'); grid.append(field('氏名', member['氏名'], value => set('氏名', value)), field('基本担当楽器（任意）', member['基本担当楽器'], value => set('基本担当楽器', value))); section.append(grid, button(bool(member['在籍']) ? '削除' : '復帰', () => { set('在籍', !bool(member['在籍'])); render(); }, undefined, bool(member['在籍']) ? 'danger' : undefined)); return section;
+    const grid = el('div', undefined, 'grid'); grid.append(field('氏名', member['氏名'], value => set('氏名', value)), field('基本担当楽器（任意）', member['基本担当楽器'], value => set('基本担当楽器', value))); section.append(grid, button(bool(member['在籍']) ? '削除' : '復帰', () => { if (bool(member['在籍']) && !confirm(`「${member['氏名'] || 'このお子さま'}」を削除しますか？あとで復帰できます。`)) return; set('在籍', !bool(member['在籍'])); render(); }, undefined, bool(member['在籍']) ? 'danger' : undefined)); return section;
   }
   function renderTeachers(panel) {
     panel.append(el('p', '候補日入力に表示する先生です。スマホを使わない先生も、ここには登録し、可否は管理者が「先生・予定」タブで代理入力できます。', 'muted'));
@@ -344,7 +344,7 @@
     data.masters.teachers.sort((a, b) => Number(bool(b['在籍'])) - Number(bool(a['在籍'])) || String(a['氏名']).localeCompare(String(b['氏名']))).forEach(teacher => {
       const card = el('article', undefined, 'card roster-card'); card.append(el('h2', teacher['氏名'] || '新しい先生'), el('span', bool(teacher['在籍']) ? '在籍中' : '在籍終了', 'badge'));
       card.append(field('氏名', teacher['氏名'], value => { teacher['氏名'] = value; mark('teachers', rosterKeys.teachers(teacher)); }));
-      card.append(button(bool(teacher['在籍']) ? '削除' : '復帰', () => { teacher['在籍'] = !bool(teacher['在籍']); mark('teachers', rosterKeys.teachers(teacher)); render(); }, undefined, bool(teacher['在籍']) ? 'danger' : undefined)); panel.append(card);
+      card.append(button(bool(teacher['在籍']) ? '削除' : '復帰', () => { if (bool(teacher['在籍']) && !confirm(`「${teacher['氏名'] || 'この先生'}」を削除しますか？あとで復帰できます。`)) return; teacher['在籍'] = !bool(teacher['在籍']); mark('teachers', rosterKeys.teachers(teacher)); render(); }, undefined, bool(teacher['在籍']) ? 'danger' : undefined)); panel.append(card);
     });
   }
   function renderReferences() {
