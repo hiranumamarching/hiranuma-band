@@ -84,6 +84,7 @@ function handleWrite_(request) {
     case 'admin_save_households':
     case 'admin_save_guardians':
     case 'admin_save_members':
+    case 'admin_save_roster':
     case 'admin_save_teachers':
     case 'admin_publish_month':
       requireRole_(auth, 'admin');
@@ -280,6 +281,8 @@ function saveAdmin_(request) {
       return adminSaveGuardians_(request.records || []);
     case 'admin_save_members':
       return adminSaveMembers_(request.records || []);
+    case 'admin_save_roster':
+      return adminSaveRoster_(request.records || []);
     case 'admin_save_teachers':
       return adminSaveTeachers_(request.records || []);
     case 'admin_publish_month':
@@ -355,14 +358,71 @@ function adminSaveGuardians_(records) {
 
 function adminSaveMembers_(records) {
   return withWriteLock_(function() {
+    ensureMembersSchema_();
     requireRecords_(records);
     const households = indexBy_(latestRows_(readTable_('m_households'), function(row) { return row['家庭ID']; }), '家庭ID');
     const rows = records.map(function(record) {
       const id = String(record['子どもID'] || '').trim(); const householdId = String(record['家庭ID'] || '').trim(); const active = asBoolean_(record['在籍']); const name = String(record['氏名'] || '').trim();
       if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || !households[householdId] || (active && !name)) throw apiError_(API_ERROR.INVALID_REQUEST, 'お子さまの家庭または氏名が不正です。');
-      return { '子どもID': id, '家庭ID': householdId, '氏名': name, '基本担当楽器': String(record['基本担当楽器'] || '').trim(), '在籍': active };
+      return { '子どもID': id, '家庭ID': householdId, '氏名': name, '基本担当楽器': String(record['基本担当楽器'] || '').trim(), '在籍': active, '学年': String(record['学年'] || '').trim() };
     });
     appendObjects_('m_members', rows); return { saved: rows.length };
+  });
+}
+
+/**
+ * 表形式の名簿を現在の状態として保存する。物理的な行は追記し、画面には最新行だけを返す。
+ * 同じ家庭名・保護者名を新しい行に入力した場合は、既存の家庭・保護者へまとめる。
+ */
+function adminSaveRoster_(records) {
+  return withWriteLock_(function() {
+    ensureMembersSchema_();
+    if (!Array.isArray(records)) throw apiError_(API_ERROR.INVALID_REQUEST, '名簿データが不正です。');
+    const households = indexBy_(latestRows_(readTable_('m_households'), function(row) { return row['家庭ID']; }), '家庭ID');
+    const guardians = indexBy_(latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }), '保護者ID');
+    const members = indexBy_(latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }), '子どもID');
+    const householdByName = {};
+    Object.keys(households).forEach(function(id) { if (asBoolean_(households[id]['在籍']) && households[id]['家庭名']) householdByName[households[id]['家庭名']] = id; });
+    const guardianByName = {}, memberByName = {};
+    Object.keys(guardians).forEach(function(id) { const row = guardians[id]; if (asBoolean_(row['在籍']) && row['表示名']) guardianByName[row['家庭ID'] + '|' + row['表示名']] = id; });
+    Object.keys(members).forEach(function(id) { const row = members[id]; if (asBoolean_(row['在籍']) && row['氏名']) memberByName[row['家庭ID'] + '|' + row['氏名']] = id; });
+    const nextHouseholds = {}, nextGuardians = {}, nextMembers = {};
+    records.forEach(function(record) {
+      const householdName = String(record.householdName || '').trim();
+      const guardianName = String(record.guardianName || '').trim();
+      const childNames = [String(record.child1Name || '').trim(), String(record.child2Name || '').trim()];
+      if (!householdName && !guardianName && !childNames[0] && !childNames[1]) return;
+      if (!householdName) throw apiError_(API_ERROR.INVALID_REQUEST, '家庭名を入力してください。');
+      let householdId = String(record.householdId || '').trim();
+      if (!households[householdId] && !nextHouseholds[householdId]) householdId = householdByName[householdName] || householdId;
+      if (!householdId) householdId = 'H-' + Utilities.getUuid();
+      const previousHousehold = households[householdId] || nextHouseholds[householdId] || {};
+      nextHouseholds[householdId] = { '家庭ID': householdId, '家庭名': householdName, '緊急連絡先': previousHousehold['緊急連絡先'] || '', '招待トークン': previousHousehold['招待トークン'] || createInviteToken_(), '在籍': true };
+      householdByName[householdName] = householdId;
+      if (guardianName) {
+        let guardianId = String(record.guardianId || '').trim();
+        if (!guardians[guardianId] && !nextGuardians[guardianId]) guardianId = guardianByName[householdId + '|' + guardianName] || guardianId;
+        if (!guardianId) guardianId = 'G-' + Utilities.getUuid();
+        nextGuardians[guardianId] = { '保護者ID': guardianId, '家庭ID': householdId, '表示名': guardianName, '対応可能な役割': String(record.guardianRoles || '').trim(), '在籍': true };
+        guardianByName[householdId + '|' + guardianName] = guardianId;
+      }
+      [[childNames[0], String(record.child1Grade || '').trim(), record.child1Id], [childNames[1], String(record.child2Grade || '').trim(), record.child2Id]].forEach(function(child) {
+        if (!child[0]) return;
+        let memberId = String(child[2] || '').trim();
+        if (!members[memberId] && !nextMembers[memberId]) memberId = memberByName[householdId + '|' + child[0]] || memberId;
+        if (!memberId) memberId = 'M-' + Utilities.getUuid();
+        const previousMember = members[memberId] || nextMembers[memberId] || {};
+        nextMembers[memberId] = { '子どもID': memberId, '家庭ID': householdId, '氏名': child[0], '基本担当楽器': previousMember['基本担当楽器'] || '', '在籍': true, '学年': child[1] };
+        memberByName[householdId + '|' + child[0]] = memberId;
+      });
+    });
+    const retiredHouseholds = Object.keys(households).filter(function(id) { return asBoolean_(households[id]['在籍']) && !nextHouseholds[id]; }).map(function(id) { const row = copyObject_(households[id]); row['在籍'] = false; return row; });
+    const retiredGuardians = Object.keys(guardians).filter(function(id) { return asBoolean_(guardians[id]['在籍']) && !nextGuardians[id]; }).map(function(id) { const row = copyObject_(guardians[id]); row['在籍'] = false; return row; });
+    const retiredMembers = Object.keys(members).filter(function(id) { return asBoolean_(members[id]['在籍']) && !nextMembers[id]; }).map(function(id) { const row = copyObject_(members[id]); row['在籍'] = false; return row; });
+    appendObjects_('m_households', Object.keys(nextHouseholds).map(function(id) { return nextHouseholds[id]; }).concat(retiredHouseholds));
+    appendObjects_('m_guardians', Object.keys(nextGuardians).map(function(id) { return nextGuardians[id]; }).concat(retiredGuardians));
+    appendObjects_('m_members', Object.keys(nextMembers).map(function(id) { return nextMembers[id]; }).concat(retiredMembers));
+    return { households: Object.keys(nextHouseholds).length, guardians: Object.keys(nextGuardians).length, members: Object.keys(nextMembers).length };
   });
 }
 
@@ -840,6 +900,12 @@ function ensureSessionsSchema_() {
   const sheet = getDatabase_().getSheetByName('sessions');
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   if (BAND_DB_SCHEMA.sessions.some(function(key) { return headers.indexOf(key) < 0; })) throw apiError_(API_ERROR.NOT_CONFIGURED, 'GASで migrateSessionsSchema() を実行してください。');
+}
+
+function ensureMembersSchema_() {
+  const sheet = getDatabase_().getSheetByName('m_members');
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf('学年') < 0) throw apiError_(API_ERROR.NOT_CONFIGURED, 'GASで setupBandDatabase() を実行して、子どもの学年欄を追加してください。');
 }
 
 function adminSaveMonth_(request) {

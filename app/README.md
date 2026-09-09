@@ -36,6 +36,14 @@
 
 変更は上部の「変更を保存」で保存します。公開済み予定の予定・当番・自主練情報を保存すると、その予定を下書きに戻します。下書きの間は共有画面から消え、再公開で反映します。公開タブの共有画面は保存済み・公開済みデータだけを描画します。複数APIの保存はトランザクションではありません。エラーが出たら、成功済みの保存がある可能性に注意し、保存し直すか再読み込みで状態を確認してください。
 
+## 既存環境へ表形式の名簿・学年欄を追加する手順
+
+1. `setup.gs` と `Code.gs` をGASへ貼り替えて保存します。
+2. `setupBandDatabase()` を実行します。既存の `m_members` タブの末尾に「学年」列だけを追加します。既存の名簿行は削除・上書きされません。
+3. 新しいバージョンをウェブアプリとして再デプロイし、管理画面を再読み込みします。
+
+名簿タブでは家庭・保護者・子どもを表形式で編集します。子ども2名までを同じ行に入力でき、3人目以降または保護者の追加は、同じ家庭名で行を追加します。保存済みの履歴は画面や通常の名簿表示には出ません。
+
 ## 既存環境へガイド編集を追加する手順
 
 1. `setup.gs` と `Code.gs` をGASへ貼り替え、保存します。
@@ -53,7 +61,7 @@
 - `parent_bootstrap.dutyAssignments` は、公開予定の全当番を返します。各要素は `予定ID / 役割 / 表示名` のみです。保護者ID・家庭ID・連絡先・招待トークン・メモ・内部識別子は含めません。
 - `attendance` と `dutyOffers` は引き続き自家庭分のみです。共有予定の出席は `attendanceCounts` に人数だけを返します。
 - `admin_bootstrap.shared` は同じ公開スナップショットです。`shared.js` の `BandShared.render(container, data, monthId)` は将来の保護者画面でも使用できます。
-- 管理画面は `admin_create_month / admin_save_month / admin_save_sessions / admin_delete_session / admin_save_teacher_availability / admin_save_selfpractice / admin_save_duty_assignments / admin_save_households / admin_save_guardians / admin_save_members / admin_save_teachers / admin_publish_month` を使用します。
+- 管理画面は `admin_create_month / admin_save_month / admin_save_sessions / admin_delete_session / admin_save_teacher_availability / admin_save_selfpractice / admin_save_duty_assignments / admin_save_roster / admin_save_teachers / admin_publish_month` を使用します。
 - 先生画面は `teacher.html?t=<先生トークン>` で対象月の候補を一括表示し、練習なし・自主練・本番の枠を除いて ○／× を送信します。「未入力に戻す」で誤入力を取り消せます。先生の入力締切は設けず、管理者が予定を確定するまで修正できます。
 - 保護者画面は `parent.html?k=<家庭トークン>` で、兄弟姉妹全員の月間出席と、家庭としての当番可否を一括入力します。保護者名の選択は不要です。練習なしの枠は表示も送信もしません。入力画面には下書き予定も表示しますが、共有タブには公開済み予定だけを表示します。
 - 保護者画面の「当番・本番ガイド」は、アプリ用DBに保存された内容を表示します。初回取り込みの前に、GASのスクリプトプロパティへ `DUTY_GUIDE_SOURCE_SPREADSHEET_ID` と `ANNUAL_EVENTS_SOURCE_SPREADSHEET_ID` を設定し、管理画面の「ガイド・本番候補」で取り込みを実行してください。IDはHTMLやAPIレスポンスへ出しません。年間本番の連絡先は管理者向けデータだけに含めます。

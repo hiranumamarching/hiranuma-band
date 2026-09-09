@@ -7,7 +7,7 @@
 const BAND_DB_SCHEMA = {
   m_households: ['家庭ID', '家庭名', '緊急連絡先', '招待トークン', '在籍'],
   m_guardians: ['保護者ID', '家庭ID', '表示名', '対応可能な役割', '在籍'],
-  m_members: ['子どもID', '家庭ID', '氏名', '基本担当楽器', '在籍'],
+  m_members: ['子どもID', '家庭ID', '氏名', '基本担当楽器', '在籍', '学年'],
   m_teachers: ['先生ID', '氏名', '招待トークン', '在籍'],
   m_places: ['場所ID', '名称', '並び順', '有効'],
   months: ['月ID', '状態', '先生入力締切', '保護者入力締切'],
@@ -55,6 +55,7 @@ function setupBandDatabase() {
 
   migrateSessionsSchema();
   migratePlacesSchema();
+  migrateMembersSchema();
   seedDemoData_(spreadsheet);
   const result = {
     spreadsheetId: spreadsheetId,
@@ -95,7 +96,7 @@ function seedDemoData_(spreadsheet) {
   }
   for (let index = 1; index <= 14; index += 1) {
     const householdNumber = index <= 10 ? index : index - 10;
-    memberRows.push(['M' + String(index).padStart(3, '0'), 'H' + String(householdNumber).padStart(3, '0'), 'メンバー' + String(index).padStart(2, '0'), '', true]);
+    memberRows.push(['M' + String(index).padStart(3, '0'), 'H' + String(householdNumber).padStart(3, '0'), 'メンバー' + String(index).padStart(2, '0'), '', true, '']);
   }
 
   appendSeedRows_(spreadsheet.getSheetByName('m_households'), householdRows);
@@ -138,6 +139,18 @@ function migratePlacesSchema() {
     }).map(function(row) { row['有効'] = false; return row; });
     if (retired.length) appendObjects_('m_places', retired);
     return { retired: retired.length };
+  });
+}
+
+/** 既存の名簿行は残したまま、子どもの学年列だけを末尾に追加する。 */
+function migrateMembersSchema() {
+  return withWriteLock_(function() {
+    const sheet = getDatabase_().getSheetByName('m_members');
+    if (!sheet) throw new Error('m_members がありません。');
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (headers.indexOf('学年') >= 0) return { columnsAdded: 0 };
+    sheet.getRange(1, headers.length + 1, 1, 1).setValues([['学年']]);
+    return { columnsAdded: 1 };
   });
 }
 

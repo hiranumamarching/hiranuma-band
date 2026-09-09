@@ -38,6 +38,29 @@ test('名簿は家庭単位で追記保存し、保護者・子ども・先生�
   assert(!parent(h, 'H001').data.members.some(row => row['子どもID'] === 'M-NEW'));
 });
 
+test('表形式の名簿保存は学年を追記し、同じ家庭名の追加行を既存家庭へまとめる', () => {
+  const h = fresh();
+  h.admin('admin_save_roster', { records: [
+    { householdId: 'H001', householdName: 'テスト家庭01', guardianId: 'G001', guardianName: '保護者01', guardianRoles: '会計・当番', child1Id: 'M001', child1Name: 'メンバー01', child1Grade: '3年', child2Id: 'M011', child2Name: 'メンバー11', child2Grade: '1年' },
+    { householdId: 'H-NEW', householdName: 'テスト家庭01', guardianId: 'G-NEW', guardianName: '保護者01補助', guardianRoles: '当番', child1Name: '', child1Grade: '', child2Name: '', child2Grade: '' }
+  ] });
+  const masters = bootstrap(h).masters;
+  assert.equal(h.sheets.get('m_members').rows[0].at(-1), '学年');
+  assert.equal(masters.members.find(row => row['子どもID'] === 'M001')['学年'], '3年');
+  assert.equal(masters.members.find(row => row['子どもID'] === 'M011')['学年'], '1年');
+  assert.equal(masters.guardians.find(row => row['表示名'] === '保護者01補助')['家庭ID'], 'H001');
+});
+
+test('学年列の移行は既存の子ども名簿行を消さず、再実行しても列を増やさない', () => {
+  const h = fresh(); const sheet = h.sheets.get('m_members');
+  sheet.rows = [['子どもID', '家庭ID', '氏名', '基本担当楽器', '在籍'], ['M001', 'H001', 'メンバー01', '', true]];
+  assert.equal(h.context.migrateMembersSchema().columnsAdded, 1);
+  assert.deepEqual(sheet.rows[0], ['子どもID', '家庭ID', '氏名', '基本担当楽器', '在籍', '学年']);
+  assert.equal(h.context.migrateMembersSchema().columnsAdded, 0);
+  assert.equal(bootstrap(h).masters.members[0]['氏名'], 'メンバー01');
+  assert.equal(bootstrap(h).masters.members[0]['学年'], '');
+});
+
 test('当番ガイド・年間本番一覧を初回だけ外部シートからアプリDBへ取り込み、保護者へ連絡先を返さない', () => {
   const h = fresh();
   h.properties.set('DUTY_GUIDE_SOURCE_SPREADSHEET_ID', 'DUTY_SOURCE'); h.properties.set('ANNUAL_EVENTS_SOURCE_SPREADSHEET_ID', 'EVENT_SOURCE');

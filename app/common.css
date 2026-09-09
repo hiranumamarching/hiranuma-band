@@ -207,6 +207,48 @@ input[type=checkbox] {
 .roster-person .grid {
   gap:8px;
 }
+.roster-table-wrap {
+  margin-top:12px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:white;
+}
+.roster-table {
+  min-width:920px;
+  table-layout:fixed;
+}
+.roster-table th {
+  background:#eef1fa;
+  white-space:nowrap;
+}
+.roster-table th:nth-child(1),.roster-table th:nth-child(2) {
+  width:15%;
+}
+.roster-table th:nth-child(3) {
+  width:18%;
+}
+.roster-table th:nth-child(4),.roster-table th:nth-child(6) {
+  width:16%;
+}
+.roster-table th:nth-child(5),.roster-table th:nth-child(7) {
+  width:7%;
+}
+.roster-table th:last-child,.roster-table td:last-child {
+  width:52px;
+}
+.roster-table input {
+  min-height:38px;
+  padding:6px;
+}
+.teacher-table {
+  min-width:300px;
+}
+.teacher-table th:first-child {
+  width:auto;
+}
+.teacher-table th:last-child,.teacher-table td:last-child {
+  width:52px;
+}
 .confirm-backdrop {
   position:fixed;
   inset:0;
