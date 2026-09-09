@@ -4,15 +4,16 @@
   const $ = id => document.getElementById(id);
   const bool = v => v === true || v === 'true' || v === 1 || v === '1' || v === '○';
   const roles = ['当番'];
-  const tabs = [['month', '月設定'], ['schedule', '先生・予定'], ['duty', '集計・当番'], ['publish', '公開確認'], ['references', 'ガイド・本番候補']];
-  const dirty = { sessions: new Set(), selfPractice: new Set(), dutyAssignments: new Set(), teacherAvailability: new Set(), guideItems: new Set(), annualEvents: new Set() };
+  const tabs = [['month', '月設定'], ['schedule', '先生・予定'], ['duty', '集計・当番'], ['publish', '公開確認'], ['roster', '名簿'], ['references', 'ガイド・本番候補']];
+  const dirty = { sessions: new Set(), selfPractice: new Set(), dutyAssignments: new Set(), teacherAvailability: new Set(), households: new Set(), guardians: new Set(), members: new Set(), teachers: new Set(), guideItems: new Set(), annualEvents: new Set() };
   const today = new Date();
   let monthId = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-  let tab = 'month', data, busy = false, monthDirty = false, deadlineDraft;
+  let tab = 'month', rosterTab = 'families', data, busy = false, monthDirty = false, deadlineDraft;
   const dutyKey = r => [r['予定ID'], r['役割'], r['区分']].join('|');
   const availabilityKey = r => [r['先生ID'], r['予定ID'], r['枠']].join('|');
   const guideKey = r => r.id;
   const annualEventKey = r => r.id;
+  const rosterKeys = { households: r => r['家庭ID'], guardians: r => r['保護者ID'], members: r => r['子どもID'], teachers: r => r['先生ID'] };
   const monthKey = value => String(value || '').trim().slice(0, 7);
   const teacherIds = value => [...new Set(String(value || '').split(',').map(id => id.trim()).filter(Boolean))];
   const practiceTimes = session => {
@@ -82,7 +83,7 @@
       const b = button(label, () => { tab = id; render(); }, tab === id); b.setAttribute('aria-controls', 'panel'); return b;
     }));
     $('panel').replaceChildren();
-    ({ month: renderMonth, schedule: renderSchedule, duty: renderDuty, publish: renderPublish, references: renderReferences })[tab]();
+    ({ month: renderMonth, schedule: renderSchedule, duty: renderDuty, publish: renderPublish, roster: renderRoster, references: renderReferences })[tab]();
     updateSaveState();
   }
   function switchMonth(next) {
@@ -304,6 +305,48 @@
     };
     renderRole(); card.append(rolePicker); return card;
   }
+  function renderRoster() {
+    const panel = $('panel'); const intro = el('section', undefined, 'card'); intro.append(el('h2', '名簿の管理'), el('p', '家庭ごとに保護者とお子さまを登録します。ここで在籍にした人だけが、出席・当番入力と先生の候補日入力の対象になります。', 'muted'));
+    panel.append(intro, pills([['families', '家庭・保護者・子ども'], ['teachers', '先生']], rosterTab, value => { rosterTab = value; render(); }, '名簿の種類'));
+    if (rosterTab === 'families') renderFamilies(panel); else renderTeachers(panel);
+  }
+  function renderFamilies(panel) {
+    const households = data.masters.households; const guardians = data.masters.guardians; const members = data.masters.members;
+    panel.append(button('家庭を追加', () => {
+      const household = { '家庭ID': `H-${crypto.randomUUID()}`, '家庭名': '', '在籍': true }; const guardian = { '保護者ID': `G-${crypto.randomUUID()}`, '家庭ID': household['家庭ID'], '表示名': '', '対応可能な役割': '', '在籍': true }; households.push(household); guardians.push(guardian); mark('households', rosterKeys.households(household)); mark('guardians', rosterKeys.guardians(guardian)); render();
+    }, undefined, 'primary'));
+    households.sort((a, b) => Number(bool(b['在籍'])) - Number(bool(a['在籍'])) || String(a['家庭名']).localeCompare(String(b['家庭名']))).forEach(household => panel.append(familyCard(household, guardians, members)));
+  }
+  function familyCard(household, guardians, members) {
+    const card = el('article', undefined, 'card'); const activeLabel = bool(household['在籍']) ? '在籍中' : '在籍終了';
+    const head = el('div', undefined, 'row'); head.append(el('h2', household['家庭名'] || '新しい家庭'), el('span', activeLabel, 'badge'));
+    head.append(button(bool(household['在籍']) ? '在籍を終了' : '在籍に戻す', () => { household['在籍'] = !bool(household['在籍']); mark('households', rosterKeys.households(household)); render(); })); card.append(head);
+    card.append(field('家庭の表示名', household['家庭名'], value => { household['家庭名'] = value; mark('households', rosterKeys.households(household)); }));
+    const familyGuardians = guardians.filter(row => row['家庭ID'] === household['家庭ID']); const familyMembers = members.filter(row => row['家庭ID'] === household['家庭ID']);
+    familyGuardians.forEach(guardian => card.append(guardianEditor(guardian)));
+    card.append(button('保護者を追加', () => { const guardian = { '保護者ID': `G-${crypto.randomUUID()}`, '家庭ID': household['家庭ID'], '表示名': '', '対応可能な役割': '', '在籍': true }; guardians.push(guardian); mark('guardians', rosterKeys.guardians(guardian)); render(); }));
+    familyMembers.forEach(member => card.append(memberEditor(member)));
+    card.append(button('お子さまを追加', () => { const member = { '子どもID': `M-${crypto.randomUUID()}`, '家庭ID': household['家庭ID'], '氏名': '', '基本担当楽器': '', '在籍': true }; members.push(member); mark('members', rosterKeys.members(member)); render(); })); return card;
+  }
+  function guardianEditor(guardian) {
+    const section = el('section', undefined, 'slot'); section.append(el('h3', `保護者${bool(guardian['在籍']) ? '' : '（在籍終了）'}`));
+    const set = (key, value) => { guardian[key] = value; mark('guardians', rosterKeys.guardians(guardian)); };
+    const grid = el('div', undefined, 'grid'); grid.append(field('表示名', guardian['表示名'], value => set('表示名', value)), field('対応できること（任意）', guardian['対応可能な役割'], value => set('対応可能な役割', value))); section.append(grid, button(bool(guardian['在籍']) ? 'この保護者を在籍終了にする' : 'この保護者を在籍に戻す', () => { set('在籍', !bool(guardian['在籍'])); render(); }, undefined, bool(guardian['在籍']) ? 'danger' : undefined)); return section;
+  }
+  function memberEditor(member) {
+    const section = el('section', undefined, 'slot'); section.append(el('h3', `お子さま${bool(member['在籍']) ? '' : '（在籍終了）'}`));
+    const set = (key, value) => { member[key] = value; mark('members', rosterKeys.members(member)); };
+    const grid = el('div', undefined, 'grid'); grid.append(field('氏名', member['氏名'], value => set('氏名', value)), field('基本担当楽器（任意）', member['基本担当楽器'], value => set('基本担当楽器', value))); section.append(grid, button(bool(member['在籍']) ? 'このお子さまを在籍終了にする' : 'このお子さまを在籍に戻す', () => { set('在籍', !bool(member['在籍'])); render(); }, undefined, bool(member['在籍']) ? 'danger' : undefined)); return section;
+  }
+  function renderTeachers(panel) {
+    panel.append(el('p', '候補日入力に表示する先生です。スマホを使わない先生も、ここには登録し、可否は管理者が「先生・予定」タブで代理入力できます。', 'muted'));
+    panel.append(button('先生を追加', () => { const teacher = { '先生ID': `T-${crypto.randomUUID()}`, '氏名': '', '在籍': true }; data.masters.teachers.push(teacher); mark('teachers', rosterKeys.teachers(teacher)); render(); }, undefined, 'primary'));
+    data.masters.teachers.sort((a, b) => Number(bool(b['在籍'])) - Number(bool(a['在籍'])) || String(a['氏名']).localeCompare(String(b['氏名']))).forEach(teacher => {
+      const card = el('article', undefined, 'card'); card.append(el('h2', teacher['氏名'] || '新しい先生'), el('span', bool(teacher['在籍']) ? '在籍中' : '在籍終了', 'badge'));
+      card.append(field('氏名', teacher['氏名'], value => { teacher['氏名'] = value; mark('teachers', rosterKeys.teachers(teacher)); }));
+      card.append(button(bool(teacher['在籍']) ? 'この先生を在籍終了にする' : 'この先生を在籍に戻す', () => { teacher['在籍'] = !bool(teacher['在籍']); mark('teachers', rosterKeys.teachers(teacher)); render(); }, undefined, bool(teacher['在籍']) ? 'danger' : undefined)); panel.append(card);
+    });
+  }
   function renderReferences() {
     const panel = $('panel'); const references = data.references || {};
     const intro = el('section', undefined, 'card'); intro.append(el('h2', '当番ガイド・年間本番候補'), el('p', 'ここで保存した内容を保護者画面に表示します。元のスプレッドシートは初回取り込み時以外、変更しません。', 'muted')); panel.append(intro);
@@ -373,6 +416,10 @@
       ['sessions', 'admin_save_sessions', s => s['予定ID'], rows => rows],
       ['selfPractice', 'admin_save_selfpractice', s => s['予定ID'], rows => rows],
       ['dutyAssignments', 'admin_save_duty_assignments', dutyKey, rows => rows],
+      ['households', 'admin_save_households', rosterKeys.households, rows => rows],
+      ['guardians', 'admin_save_guardians', rosterKeys.guardians, rows => rows],
+      ['members', 'admin_save_members', rosterKeys.members, rows => rows],
+      ['teachers', 'admin_save_teachers', rosterKeys.teachers, rows => rows],
       ['guideItems', 'admin_save_guide_items', guideKey, rows => rows.map(item => ({ '項目ID': item.id, '種別': item.type, '区分': item.section, '並び順': item.order, '内容': item.content, '有効': item.active !== false && String(item.content || '').trim() !== '' }))],
       ['annualEvents', 'admin_save_annual_event_candidates', annualEventKey, rows => rows.map(event => ({ '候補ID': event.id, '並び順': event.order, '月': event.month, '本番名': event.name, '日程': event.schedule, '場所': event.venue, '演奏時間': event.duration, '楽器運び': event.transport, '演奏できる楽器': event.instruments, '連絡先': event.contact, '事前打ち合わせ': event.meeting, 'その他': event.notes, '有効': event.active !== false }))],
       ['teacherAvailability', 'admin_save_teacher_availability', availabilityKey, rows => rows.filter(r => {

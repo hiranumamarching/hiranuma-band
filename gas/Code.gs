@@ -81,6 +81,10 @@ function handleWrite_(request) {
     case 'admin_save_guide_items':
     case 'admin_save_annual_event_candidates':
     case 'admin_backup_references':
+    case 'admin_save_households':
+    case 'admin_save_guardians':
+    case 'admin_save_members':
+    case 'admin_save_teachers':
     case 'admin_publish_month':
       requireRole_(auth, 'admin');
       return { ok: true, data: saveAdmin_(request) };
@@ -162,10 +166,10 @@ function teacherBootstrap_(auth) {
 
 function adminBootstrap_() {
   const masters = {
-    households: readTable_('m_households').map(function(row) { return withoutKeys_(row, ['招待トークン']); }),
-    guardians: readTable_('m_guardians'),
-    members: readTable_('m_members'),
-    teachers: readTable_('m_teachers').map(function(row) { return withoutKeys_(row, ['招待トークン']); }),
+    households: latestRows_(readTable_('m_households'), function(row) { return row['家庭ID']; }).map(function(row) { return withoutKeys_(row, ['招待トークン']); }),
+    guardians: latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }),
+    members: latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }),
+    teachers: latestRows_(readTable_('m_teachers'), function(row) { return row['先生ID']; }).map(function(row) { return withoutKeys_(row, ['招待トークン']); }),
     places: activePlaces_()
   };
   return {
@@ -270,6 +274,14 @@ function saveAdmin_(request) {
       return adminSaveAnnualEventCandidates_(request.records || []);
     case 'admin_backup_references':
       return adminBackupReferences_();
+    case 'admin_save_households':
+      return adminSaveHouseholds_(request.records || []);
+    case 'admin_save_guardians':
+      return adminSaveGuardians_(request.records || []);
+    case 'admin_save_members':
+      return adminSaveMembers_(request.records || []);
+    case 'admin_save_teachers':
+      return adminSaveTeachers_(request.records || []);
     case 'admin_publish_month':
       return adminPublishMonth_(request.monthId);
     default:
@@ -311,6 +323,59 @@ function adminSavePlace_(request) {
     const row = { '場所ID': 'P' + String(Math.max.apply(null, [0].concat(numbers)) + 1).padStart(3, '0'), '名称': name, '並び順': Math.max.apply(null, [0].concat(orders)) + 1, '有効': true };
     appendObjects_('m_places', [row]);
     return { place: row };
+  });
+}
+
+function adminSaveHouseholds_(records) {
+  return withWriteLock_(function() {
+    requireRecords_(records);
+    const existing = indexBy_(latestRows_(readTable_('m_households'), function(row) { return row['家庭ID']; }), '家庭ID');
+    const rows = records.map(function(record) {
+      const id = String(record['家庭ID'] || '').trim(); const active = asBoolean_(record['在籍']); const name = String(record['家庭名'] || '').trim();
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || (active && !name)) throw apiError_(API_ERROR.INVALID_REQUEST, '家庭IDまたは家庭名が不正です。');
+      const prior = existing[id] || {};
+      return { '家庭ID': id, '家庭名': name, '緊急連絡先': prior['緊急連絡先'] || '', '招待トークン': prior['招待トークン'] || createInviteToken_(), '在籍': active };
+    });
+    appendObjects_('m_households', rows); return { saved: rows.length };
+  });
+}
+
+function adminSaveGuardians_(records) {
+  return withWriteLock_(function() {
+    requireRecords_(records);
+    const households = indexBy_(latestRows_(readTable_('m_households'), function(row) { return row['家庭ID']; }), '家庭ID');
+    const rows = records.map(function(record) {
+      const id = String(record['保護者ID'] || '').trim(); const householdId = String(record['家庭ID'] || '').trim(); const active = asBoolean_(record['在籍']); const name = String(record['表示名'] || '').trim();
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || !households[householdId] || (active && !name)) throw apiError_(API_ERROR.INVALID_REQUEST, '保護者の家庭または表示名が不正です。');
+      return { '保護者ID': id, '家庭ID': householdId, '表示名': name, '対応可能な役割': String(record['対応可能な役割'] || '').trim(), '在籍': active };
+    });
+    appendObjects_('m_guardians', rows); return { saved: rows.length };
+  });
+}
+
+function adminSaveMembers_(records) {
+  return withWriteLock_(function() {
+    requireRecords_(records);
+    const households = indexBy_(latestRows_(readTable_('m_households'), function(row) { return row['家庭ID']; }), '家庭ID');
+    const rows = records.map(function(record) {
+      const id = String(record['子どもID'] || '').trim(); const householdId = String(record['家庭ID'] || '').trim(); const active = asBoolean_(record['在籍']); const name = String(record['氏名'] || '').trim();
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || !households[householdId] || (active && !name)) throw apiError_(API_ERROR.INVALID_REQUEST, 'お子さまの家庭または氏名が不正です。');
+      return { '子どもID': id, '家庭ID': householdId, '氏名': name, '基本担当楽器': String(record['基本担当楽器'] || '').trim(), '在籍': active };
+    });
+    appendObjects_('m_members', rows); return { saved: rows.length };
+  });
+}
+
+function adminSaveTeachers_(records) {
+  return withWriteLock_(function() {
+    requireRecords_(records);
+    const existing = indexBy_(latestRows_(readTable_('m_teachers'), function(row) { return row['先生ID']; }), '先生ID');
+    const rows = records.map(function(record) {
+      const id = String(record['先生ID'] || '').trim(); const active = asBoolean_(record['在籍']); const name = String(record['氏名'] || '').trim();
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || (active && !name)) throw apiError_(API_ERROR.INVALID_REQUEST, '先生IDまたは氏名が不正です。');
+      return { '先生ID': id, '氏名': name, '招待トークン': existing[id]?.['招待トークン'] || createInviteToken_(), '在籍': active };
+    });
+    appendObjects_('m_teachers', rows); return { saved: rows.length };
   });
 }
 

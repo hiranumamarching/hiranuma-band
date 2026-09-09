@@ -26,6 +26,18 @@ test('場所マスターは平沼小学校だけを初期表示し、任意の�
   assert.throws(() => h.admin('admin_save_place', { name: '西公会堂' }), /既にあります/);
 });
 
+test('名簿は家庭単位で追記保存し、保護者・子ども・先生を在籍終了にできる', () => {
+  const h = fresh();
+  h.admin('admin_save_households', { records: [{ '家庭ID': 'H-NEW', '家庭名': '新しい家庭', '在籍': true }] });
+  h.admin('admin_save_guardians', { records: [{ '保護者ID': 'G-NEW', '家庭ID': 'H-NEW', '表示名': '新しい保護者', '対応可能な役割': '当番', '在籍': true }] });
+  h.admin('admin_save_members', { records: [{ '子どもID': 'M-NEW', '家庭ID': 'H-NEW', '氏名': '新しいメンバー', '基本担当楽器': 'フルート', '在籍': true }] });
+  h.admin('admin_save_teachers', { records: [{ '先生ID': 'T-NEW', '氏名': '新しい先生', '在籍': true }] });
+  let masters = bootstrap(h).masters; assert(masters.households.some(row => row['家庭ID'] === 'H-NEW')); assert(masters.guardians.some(row => row['保護者ID'] === 'G-NEW')); assert(masters.members.some(row => row['子どもID'] === 'M-NEW')); assert(masters.teachers.some(row => row['先生ID'] === 'T-NEW'));
+  h.admin('admin_save_members', { records: [{ '子どもID': 'M-NEW', '家庭ID': 'H-NEW', '氏名': '新しいメンバー', '基本担当楽器': 'フルート', '在籍': false }] });
+  assert.equal(h.context.readTable_('m_members').filter(row => row['子どもID'] === 'M-NEW').at(-1)['在籍'], false);
+  assert(!parent(h, 'H001').data.members.some(row => row['子どもID'] === 'M-NEW'));
+});
+
 test('当番ガイド・年間本番一覧を初回だけ外部シートからアプリDBへ取り込み、保護者へ連絡先を返さない', () => {
   const h = fresh();
   h.properties.set('DUTY_GUIDE_SOURCE_SPREADSHEET_ID', 'DUTY_SOURCE'); h.properties.set('ANNUAL_EVENTS_SOURCE_SPREADSHEET_ID', 'EVENT_SOURCE');
