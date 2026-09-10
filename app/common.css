@@ -219,7 +219,9 @@ input[type=checkbox] {
 }
 .roster-table th {
   background:#eef1fa;
-  white-space:nowrap;
+  white-space:normal;
+  line-height:1.35;
+  overflow-wrap:anywhere;
 }
 .roster-table th:nth-child(1),.roster-table th:nth-child(2) {
   width:15%;
