@@ -140,8 +140,8 @@ function parentCard_(auth, sessionId) {
   guardians.forEach(function(row) { allowedIds[row['保護者ID']] = true; });
   members.forEach(function(row) { allowedIds[row['子どもID']] = true; });
   const allowedSessions = indexBy_(publishedSessions_(), '予定ID');
-  const items = readTable_('timeline_items').filter(function(item) {
-    return !!allowedSessions[item['予定ID']] && (!sessionId || item['予定ID'] === sessionId) && hasAssignedId_(item['担当'], allowedIds);
+  const items = latestRows_(readTable_('timeline_items'), function(item) { return item['項目ID']; }).filter(function(item) {
+    return asBoolean_(item['有効']) && !!allowedSessions[item['予定ID']] && (!sessionId || item['予定ID'] === sessionId) && hasAssignedId_(item['担当'], allowedIds);
   }).sort(compareTimeline_);
   return { guardians: guardians, members: members, timelineItems: items };
 }
@@ -184,7 +184,7 @@ function adminBootstrap_() {
     dutyOffers: latestRows_(readTable_('duty_offers'), function(row) { return row['保護者ID'] + '|' + row['予定ID']; }),
     dutyAssignments: dutyAssignments_(),
     events: latestRows_(readTable_('events'), function(row) { return row['予定ID']; }),
-    timelineItems: readTable_('timeline_items'),
+    timelineItems: latestRows_(readTable_('timeline_items'), function(row) { return row['項目ID']; }).filter(function(row) { return asBoolean_(row['有効']); }),
     references: referenceSources_(true)
   };
 }
@@ -262,7 +262,7 @@ function saveAdmin_(request) {
     case 'admin_save_event':
       return adminAppend_(request.records || [], 'events', ['予定ID', '本番名']);
     case 'admin_save_timeline_items':
-      return adminAppend_(request.records || [], 'timeline_items', ['項目ID', '予定ID', '日区分', '種別', '内容']);
+      return adminSaveTimelineItems_(request.records || []);
     case 'admin_save_teacher_availability':
       return adminSaveTeacherAvailability_(request.records || []);
     case 'admin_save_place':
@@ -494,6 +494,37 @@ function adminAppend_(records, sheetName, requiredKeys) {
   });
   withWriteLock_(function() { appendObjects_(sheetName, records); });
   return { saved: records.length, sheet: sheetName };
+}
+
+function adminSaveTimelineItems_(records) {
+  return withWriteLock_(function() {
+    if (!Array.isArray(records) || !records.length) throw apiError_(API_ERROR.INVALID_REQUEST, '保存する進行項目がありません。');
+    ensureTimelineSchema_();
+    const eventSessions = indexBy_(activeSessions_().filter(function(row) { return row['種別'] === '本番'; }), '予定ID');
+    const validScopes = ['当日進行', 'ステージ進行'];
+    const validDays = ['前日', '当日'];
+    const rows = records.map(function(record) {
+      const row = {};
+      BAND_DB_SCHEMA.timeline_items.forEach(function(key) { row[key] = record[key] === undefined ? '' : record[key]; });
+      row['項目ID'] = String(row['項目ID']).trim();
+      row['予定ID'] = String(row['予定ID']).trim();
+      row['日区分'] = String(row['日区分'] || '当日').trim();
+      row.scope = String(row.scope || '当日進行').trim();
+      row['種別'] = String(row['種別'] || '予定').trim();
+      row['内容'] = String(row['内容']).trim();
+      row['時刻'] = String(row['時刻']).trim();
+      row['並び順'] = Number(row['並び順']) || 0;
+      row['有効'] = row['有効'] === false || row['有効'] === 'false' ? false : true;
+      if (!row['項目ID'] || !row['予定ID']) throw apiError_(API_ERROR.INVALID_REQUEST, '進行項目IDと予定IDが必要です。');
+      if (!eventSessions[row['予定ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '本番予定を選んでください。');
+      if (validDays.indexOf(row['日区分']) < 0 || validScopes.indexOf(row.scope) < 0) throw apiError_(API_ERROR.INVALID_REQUEST, '進行項目の区分が不正です。');
+      if (row['有効'] && !row['内容']) throw apiError_(API_ERROR.INVALID_REQUEST, '進行内容を入力してください。');
+      if (row['時刻'] && !/^([01]\d|2[0-3]):[0-5]\d$/.test(row['時刻'])) throw apiError_(API_ERROR.INVALID_REQUEST, '時刻はHH:MMで入力してください。');
+      return row;
+    });
+    appendObjects_('timeline_items', rows);
+    return { saved: rows.length };
+  });
 }
 
 function adminPublishMonth_(monthId) {
@@ -906,6 +937,12 @@ function ensureMembersSchema_() {
   const sheet = getDatabase_().getSheetByName('m_members');
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   if (headers.indexOf('学年') < 0) throw apiError_(API_ERROR.NOT_CONFIGURED, 'GASで setupBandDatabase() を実行して、子どもの学年欄を追加してください。');
+}
+
+function ensureTimelineSchema_() {
+  const sheet = getDatabase_().getSheetByName('timeline_items');
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf('有効') < 0) throw apiError_(API_ERROR.NOT_CONFIGURED, 'GASで setupBandDatabase() を実行して、進行項目の有効欄を追加してください。');
 }
 
 function adminSaveMonth_(request) {

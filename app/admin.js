@@ -4,8 +4,8 @@
   const $ = id => document.getElementById(id);
   const bool = v => v === true || v === 'true' || v === 1 || v === '1' || v === '○';
   const roles = ['当番'];
-  const tabs = [['month', '月設定'], ['schedule', '先生・予定'], ['duty', '集計・当番'], ['publish', '公開確認'], ['roster', '名簿'], ['references', 'ガイド・本番候補']];
-  const dirty = { sessions: new Set(), selfPractice: new Set(), dutyAssignments: new Set(), teacherAvailability: new Set(), teachers: new Set(), guideItems: new Set(), annualEvents: new Set() };
+  const tabs = [['month', '月設定'], ['schedule', '先生・予定'], ['duty', '集計・当番'], ['event', '本番'], ['publish', '公開確認'], ['roster', '名簿'], ['references', 'ガイド・本番候補']];
+  const dirty = { sessions: new Set(), selfPractice: new Set(), dutyAssignments: new Set(), teacherAvailability: new Set(), teachers: new Set(), events: new Set(), timelineItems: new Set(), guideItems: new Set(), annualEvents: new Set() };
   const today = new Date();
   let monthId = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
   let tab = 'month', rosterTab = 'families', data, busy = false, monthDirty = false, rosterDirty = false, deadlineDraft, rosterDraft = [];
@@ -13,6 +13,8 @@
   const availabilityKey = r => [r['先生ID'], r['予定ID'], r['枠']].join('|');
   const guideKey = r => r.id;
   const annualEventKey = r => r.id;
+  const eventKey = r => r['予定ID'];
+  const timelineKey = r => r['項目ID'];
   const rosterKeys = { teachers: r => r['先生ID'] };
   const monthKey = value => String(value || '').trim().slice(0, 7);
   const teacherIds = value => [...new Set(String(value || '').split(',').map(id => id.trim()).filter(Boolean))];
@@ -89,7 +91,7 @@
       const b = button(label, () => { tab = id; render(); }, tab === id); b.setAttribute('aria-controls', 'panel'); return b;
     }));
     $('panel').replaceChildren();
-    ({ month: renderMonth, schedule: renderSchedule, duty: renderDuty, publish: renderPublish, roster: renderRoster, references: renderReferences })[tab]();
+    ({ month: renderMonth, schedule: renderSchedule, duty: renderDuty, event: renderEvent, publish: renderPublish, roster: renderRoster, references: renderReferences })[tab]();
     updateSaveState();
   }
   function switchMonth(next) {
@@ -351,6 +353,48 @@
       card.append(button(bool(teacher['在籍']) ? '削除' : '復帰', () => { const change = () => { teacher['在籍'] = !bool(teacher['在籍']); mark('teachers', rosterKeys.teachers(teacher)); render(); }; if (bool(teacher['在籍'])) confirmRemoval(teacher['氏名'] || 'この先生', change); else change(); }, undefined, bool(teacher['在籍']) ? 'danger' : undefined)); panel.append(card);
     });
   }
+  function eventSessions() { return sessions().filter(s => s['種別'] === '本番'); }
+  function eventFor(session) {
+    let event = data.events.find(row => row['予定ID'] === session['予定ID']);
+    if (!event) { event = { '予定ID': session['予定ID'], '本番名': '', '会場': '', '衣装': '', '子どもの持ち物': '', '全体連絡': '' }; data.events.push(event); }
+    return event;
+  }
+  function renderEvent() {
+    if (!requireMonth()) return;
+    const panel = $('panel'); const candidates = eventSessions();
+    panel.append(el('p', '本番の基本情報と、保護者へ共有する当日の流れを作成します。ステージ配置・器材は次の画面で追加します。', 'muted'));
+    if (!candidates.length) { panel.append(el('section', '「先生・予定」タブで予定の種別を「本番」にすると、ここで編集できます。', 'card warning')); return; }
+    let selectedId = candidates[0]['予定ID'];
+    const selector = el('section', undefined, 'card'); selector.append(el('h2', '編集する本番'));
+    const body = el('div'); const draw = () => { body.replaceChildren(eventEditor(candidates.find(s => s['予定ID'] === selectedId))); };
+    selector.append(pills(candidates.map(s => [s['予定ID'], `${s['日付']} ${eventFor(s)['本番名'] || '本番名未入力'}`]), selectedId, id => { selectedId = id; draw(); }, '編集する本番'), body); panel.append(selector); draw();
+  }
+  function eventEditor(session) {
+    const wrap = el('div'); const event = eventFor(session); const setEvent = (key, value) => { event[key] = value; mark('events', eventKey(event)); };
+    const basic = el('section', undefined, 'slot'); basic.append(el('h2', `${session['日付']}の本番情報`));
+    const grid = el('div', undefined, 'grid'); [['本番名', '本番名'], ['会場', '会場'], ['衣装', '衣装']].forEach(([label, key]) => grid.append(field(label, event[key], value => setEvent(key, value)))); basic.append(grid, field('子どもの持ち物', event['子どもの持ち物'], value => setEvent('子どもの持ち物', value), 'textarea'), field('全体連絡', event['全体連絡'], value => setEvent('全体連絡', value), 'textarea')); wrap.append(basic);
+    const timeline = data.timelineItems.filter(item => item['予定ID'] === session['予定ID']).sort((a, b) => Number(a['並び順']) - Number(b['並び順']));
+    const flow = el('section', undefined, 'slot'); flow.append(el('h2', '当日の流れ・ステージ進行'), el('p', '曲順、MC、集合・転換などを同じ一覧に並べます。担当はメンバー名から選ぶか、自由入力できます。', 'muted'));
+    const list = el('div'); const draw = () => {
+      list.replaceChildren();
+      timeline.filter(item => item['有効'] !== false).forEach(item => list.append(timelineEditor(item, () => draw())));
+    };
+    flow.append(list, button('進行項目を追加', () => { const item = { '項目ID': `TL-${crypto.randomUUID()}`, '予定ID': session['予定ID'], '日区分': '当日', '時刻': '', '並び順': Math.max(0, ...timeline.map(row => Number(row['並び順']) || 0)) + 1, scope: '当日進行', '種別': '予定', '内容': '', '場所ID': '', '担当': '', '担当自由入力': '', '持ち物': '', '注意点': '', '有効': true }; timeline.push(item); data.timelineItems.push(item); mark('timelineItems', timelineKey(item)); draw(); }, undefined, 'primary'));
+    draw(); wrap.append(flow); return wrap;
+  }
+  function timelineEditor(item, redraw) {
+    const row = el('article', undefined, 'card timeline-item'); const set = (key, value, refresh = false) => { item[key] = value; mark('timelineItems', timelineKey(item)); if (refresh) redraw(); };
+    const head = el('div', undefined, 'row'); head.append(el('h3', item['内容'] || '新しい進行項目'), button('削除', () => confirmRemoval(item['内容'] || 'この進行項目', () => { item['有効'] = false; mark('timelineItems', timelineKey(item)); redraw(); }), undefined, 'danger')); row.append(head);
+    const grid = el('div', undefined, 'grid'); grid.append(field('時刻（任意）', item['時刻'], value => set('時刻', value), 'time'), field('並び順', item['並び順'], value => set('並び順', value), 'number'));
+    row.append(grid, pills([['前日', '前日'], ['当日', '当日']], item['日区分'], value => set('日区分', value), '日区分'), pills([['当日進行', '当日進行'], ['ステージ進行', 'ステージ進行']], item.scope, value => set('scope', value), '進行の種類'), pills([['予定', '予定'], ['曲', '曲'], ['MC', 'MC'], ['転換', '転換'], ['その他', 'その他']], item['種別'], value => set('種別', value), '項目の種別'), field('内容', item['内容'], value => set('内容', value), 'textarea'));
+    row.append(picker('場所', data.masters.places.map(place => [place['場所ID'], place['名称']]), item['場所ID'], value => set('場所ID', value)));
+    if (item['種別'] === 'MC') {
+      const selected = teacherIds(item['担当']); const members = active('members'); const people = el('div'); people.append(el('h3', 'MC担当（任意）')); const buttons = el('div', undefined, 'pills');
+      members.forEach(member => buttons.append(button(member['氏名'], () => { const next = teacherIds(item['担当']); const index = next.indexOf(member['子どもID']); if (index >= 0) next.splice(index, 1); else next.push(member['子どもID']); set('担当', next.join(','), true); }, selected.includes(member['子どもID'])))); people.append(buttons); row.append(people);
+    }
+    row.append(field('担当の自由入力（保護者名など）', item['担当自由入力'], value => set('担当自由入力', value)), field('持ち物', item['持ち物'], value => set('持ち物', value)), field('注意点', item['注意点'], value => set('注意点', value), 'textarea'));
+    return row;
+  }
   function renderReferences() {
     const panel = $('panel'); const references = data.references || {};
     const intro = el('section', undefined, 'card'); intro.append(el('h2', '当番ガイド・年間本番候補'), el('p', 'ここで保存した内容を保護者画面に表示します。元のスプレッドシートは初回取り込み時以外、変更しません。', 'muted')); panel.append(intro);
@@ -422,6 +466,8 @@
       ['selfPractice', 'admin_save_selfpractice', s => s['予定ID'], rows => rows],
       ['dutyAssignments', 'admin_save_duty_assignments', dutyKey, rows => rows],
       ['teachers', 'admin_save_teachers', rosterKeys.teachers, rows => rows],
+      ['events', 'admin_save_event', eventKey, rows => rows],
+      ['timelineItems', 'admin_save_timeline_items', timelineKey, rows => rows],
       ['guideItems', 'admin_save_guide_items', guideKey, rows => rows.map(item => ({ '項目ID': item.id, '種別': item.type, '区分': item.section, '並び順': item.order, '内容': item.content, '有効': item.active !== false && String(item.content || '').trim() !== '' }))],
       ['annualEvents', 'admin_save_annual_event_candidates', annualEventKey, rows => rows.map(event => ({ '候補ID': event.id, '並び順': event.order, '月': event.month, '本番名': event.name, '日程': event.schedule, '場所': event.venue, '演奏時間': event.duration, '楽器運び': event.transport, '演奏できる楽器': event.instruments, '連絡先': event.contact, '事前打ち合わせ': event.meeting, 'その他': event.notes, '有効': event.active !== false }))],
       ['teacherAvailability', 'admin_save_teacher_availability', availabilityKey, rows => rows.filter(r => {

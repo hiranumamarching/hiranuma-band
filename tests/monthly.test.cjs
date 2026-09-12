@@ -61,6 +61,27 @@ test('学年列の移行は既存の子ども名簿行を消さず、再実行�
   assert.equal(bootstrap(h).masters.members[0]['学年'], '');
 });
 
+test('本番の進行項目は追記保存し、削除後は最新の無効行だけを採用する', () => {
+  const h = fresh(); const session = bootstrap(h).sessions[0];
+  h.admin('admin_save_sessions', { records: [{ ...session, '種別': '本番' }] });
+  const event = bootstrap(h).sessions[0];
+  h.admin('admin_save_event', { records: [{ '予定ID': event['予定ID'], '本番名': 'テスト本番', '会場': '平沼小学校', '衣装': 'Tシャツ', '子どもの持ち物': '水筒', '全体連絡': '集合に遅れない' }] });
+  const item = { '項目ID': 'TL-001', '予定ID': event['予定ID'], '日区分': '当日', '時刻': '10:00', '並び順': 1, scope: 'ステージ進行', '種別': 'MC', '内容': '開会あいさつ', '場所ID': 'P001', '担当': 'M001', '担当自由入力': '', '持ち物': '', '注意点': '', '有効': true };
+  h.admin('admin_save_timeline_items', { records: [item] });
+  assert.equal(bootstrap(h).timelineItems.length, 1);
+  h.admin('admin_save_timeline_items', { records: [{ ...item, '有効': false }] });
+  assert.equal(bootstrap(h).timelineItems.length, 0);
+  assert.equal(h.sheets.get('timeline_items').rows[0].at(-1), '有効');
+});
+
+test('進行項目の有効列は既存の行を残して移行する', () => {
+  const h = fresh(); const sheet = h.sheets.get('timeline_items');
+  sheet.rows = [['項目ID', '予定ID', '日区分', '時刻', '並び順', 'scope', '種別', '内容', '場所ID', '担当', '担当自由入力', '持ち物', '注意点'], ['TL-OLD', 'S20260905', '当日', '10:00', 1, '当日進行', '予定', '集合', 'P001', '', '', '', '']];
+  const result = h.context.migrateTimelineSchema();
+  assert.equal(result.columnsAdded, 1); assert.equal(result.itemsMigrated, 1);
+  assert.equal(bootstrap(h).timelineItems[0]['内容'], '集合'); assert.equal(bootstrap(h).timelineItems[0]['有効'], true);
+});
+
 test('当番ガイド・年間本番一覧を初回だけ外部シートからアプリDBへ取り込み、保護者へ連絡先を返さない', () => {
   const h = fresh();
   h.properties.set('DUTY_GUIDE_SOURCE_SPREADSHEET_ID', 'DUTY_SOURCE'); h.properties.set('ANNUAL_EVENTS_SOURCE_SPREADSHEET_ID', 'EVENT_SOURCE');

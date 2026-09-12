@@ -18,7 +18,7 @@ const BAND_DB_SCHEMA = {
   duty_offers: ['保護者ID', '予定ID', '可否', 'メモ', '送信時刻'],
   duty_assignments: ['予定ID', '役割', '保護者ID', '区分', '更新時刻'],
   events: ['予定ID', '本番名', '会場', '衣装', '子どもの持ち物', '全体連絡'],
-  timeline_items: ['項目ID', '予定ID', '日区分', '時刻', '並び順', 'scope', '種別', '内容', '場所ID', '担当', '担当自由入力', '持ち物', '注意点'],
+  timeline_items: ['項目ID', '予定ID', '日区分', '時刻', '並び順', 'scope', '種別', '内容', '場所ID', '担当', '担当自由入力', '持ち物', '注意点', '有効'],
   guide_items: ['項目ID', '種別', '区分', '並び順', '内容', '有効', '更新時刻'],
   annual_event_candidates: ['候補ID', '並び順', '月', '本番名', '日程', '場所', '演奏時間', '楽器運び', '演奏できる楽器', '連絡先', '事前打ち合わせ', 'その他', '有効', '更新時刻'],
   reference_backups: ['バックアップID', '種別', '内容JSON', '作成時刻']
@@ -56,6 +56,7 @@ function setupBandDatabase() {
   migrateSessionsSchema();
   migratePlacesSchema();
   migrateMembersSchema();
+  migrateTimelineSchema();
   seedDemoData_(spreadsheet);
   const result = {
     spreadsheetId: spreadsheetId,
@@ -151,6 +152,20 @@ function migrateMembersSchema() {
     if (headers.indexOf('学年') >= 0) return { columnsAdded: 0 };
     sheet.getRange(1, headers.length + 1, 1, 1).setValues([['学年']]);
     return { columnsAdded: 1 };
+  });
+}
+
+/** 進行項目は履歴を残したまま、有効・無効を切り替えられるようにする。 */
+function migrateTimelineSchema() {
+  return withWriteLock_(function() {
+    const sheet = getDatabase_().getSheetByName('timeline_items');
+    if (!sheet) throw new Error('timeline_items がありません。');
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (headers.indexOf('有効') >= 0) return { columnsAdded: 0 };
+    const existing = latestRows_(readTable_('timeline_items'), function(row) { return row['項目ID']; });
+    sheet.getRange(1, headers.length + 1, 1, 1).setValues([['有効']]);
+    if (existing.length) appendObjects_('timeline_items', existing.map(function(row) { row['有効'] = true; return row; }));
+    return { columnsAdded: 1, itemsMigrated: existing.length };
   });
 }
 
