@@ -25,21 +25,18 @@
     if (!months().length) wrap.append(el('p', '対象月はまだありません。', 'muted'));
   }
   function slotCard(session, slot, label) {
-    const card = el('section', undefined, 'slot');
+    const card = el('section', undefined, 'slot teacher-slot');
     const heading = el('h3', label); const draft = currentValue(session['予定ID'], slot); const value = draft === undefined ? existingValue(session['予定ID'], slot) : draft;
-    const options = [['○', '○ 参加可'], ['×', '× 不可']];
+    const options = [['○', '○ 参加可'], ['×', '× 不可'], ['', '未入力']];
     const choices = el('div', undefined, 'pills'); choices.setAttribute('role', 'group'); choices.setAttribute('aria-label', `${session['日付']} ${label}の可否`);
     options.forEach(([id, text]) => {
       const node = button(text, () => { setValue(session['予定ID'], slot, id); choices.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', String(item === node))); }, value === id);
       node.dataset.value = id; choices.append(node);
     });
-    const clear = button('未入力に戻す', () => {
-      setValue(session['予定ID'], slot, ''); choices.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', 'false'));
-    }, undefined, 'clear-answer');
-    card.append(heading, choices, clear); return card;
+    card.append(heading, choices); return card;
   }
   function renderSession(session) {
-    const card = el('article', undefined, 'card');
+    const card = el('article', undefined, 'card teacher-session');
     const date = sessionDate(session); const day = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
     card.append(el('h2', `${session['日付'].slice(5).replace('-', '月')}日（${day}） · ${session['種別']}`));
     const place = session['場所名'] || (state.data.places || []).find(row => row['場所ID'] === session['場所ID'])?.['名称'] || session['場所ID'] || '場所未設定';
