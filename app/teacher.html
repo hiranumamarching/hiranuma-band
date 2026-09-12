@@ -29,9 +29,10 @@
     @media(max-width:520px) {
       .teacher-session { padding:10px 12px; }
       .teacher-session h2 { font-size:1.02rem; }
-      .slot-grid { grid-template-columns:1fr; gap:5px; }
+      .slot-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; }
       .teacher-slot { grid-template-columns:3em minmax(0,1fr); }
-      .teacher-slot .pills button { font-size:.8rem; }
+      .teacher-slot .pills { gap:2px; }
+      .teacher-slot .pills button { min-height:34px; padding:3px 2px; font-size:.7rem; }
     }
   </style>
   <script src="api.js" defer></script>
