@@ -331,7 +331,9 @@
       card.append(el('h3', title));
       if (!rows.length) { card.append(el('p', '在籍中の登録がありません。', 'muted')); return; }
       rows.sort((a, b) => String(a.name).localeCompare(String(b.name))).forEach(row => {
-        const url = inviteUrl(page, parameter, row.token); const details = document.createElement('details'); details.className = 'slot'; const summary = el('summary', row.name || '名称未入力'); const body = el('div'); const input = document.createElement('input'); input.type = 'text'; input.value = url; input.readOnly = true; input.setAttribute('aria-label', `${row.name}の招待URL`); body.append(input, button('コピー', () => copyText(url).then(() => message(`${row.name}の招待URLをコピーしました。`)).catch(() => message('コピーできませんでした。URLを長押ししてコピーしてください。', true)), undefined, 'primary')); details.append(summary, body); card.append(details);
+        const url = inviteUrl(page, parameter, row.token); const details = document.createElement('details'); details.className = 'slot'; const summary = el('summary', row.name || '名称未入力'); const body = el('div'); const input = document.createElement('input'); input.type = 'text'; input.value = url; input.readOnly = true; input.setAttribute('aria-label', `${row.name}の招待URL`);
+        const copy = button('コピー', () => copyText(url).then(() => { copy.textContent = 'コピーしました'; copy.disabled = true; message(`${row.name}の招待URLをコピーしました。`); setTimeout(() => { copy.textContent = 'コピー'; copy.disabled = false; }, 1600); }).catch(() => message('コピーできませんでした。URLを長押ししてコピーしてください。', true)), undefined, 'primary');
+        body.append(input, copy); details.append(summary, body); card.append(details);
       });
     };
     const invites = data.invites || {}; appendList('先生用', invites.teachers || [], 'teacher', 't'); appendList('保護者用', invites.households || [], 'parent', 'k'); panel.append(card);
