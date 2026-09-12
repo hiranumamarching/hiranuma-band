@@ -26,11 +26,16 @@
   }
   function slotCard(session, slot, label) {
     const card = el('section', undefined, 'slot teacher-slot');
-    const heading = el('h3', label); const draft = currentValue(session['予定ID'], slot); const value = draft === undefined ? existingValue(session['予定ID'], slot) : draft;
-    const options = [['○', '○ 参加可'], ['×', '× 不可'], ['', '未入力']];
+    const heading = el('h3', label); const draft = currentValue(session['予定ID'], slot); let value = draft === undefined ? existingValue(session['予定ID'], slot) : draft;
+    const options = [['○', '○ 参加可'], ['×', '× 不可']];
     const choices = el('div', undefined, 'pills'); choices.setAttribute('role', 'group'); choices.setAttribute('aria-label', `${session['日付']} ${label}の可否`);
     options.forEach(([id, text]) => {
-      const node = button(text, () => { setValue(session['予定ID'], slot, id); choices.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', String(item === node))); }, value === id);
+      const node = button(text, () => {
+        const nextValue = value === id ? '' : id;
+        value = nextValue;
+        setValue(session['予定ID'], slot, nextValue);
+        choices.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', String(item.dataset.value === nextValue && nextValue !== '')));
+      }, value === id);
       node.dataset.value = id; choices.append(node);
     });
     card.append(heading, choices); return card;
