@@ -38,6 +38,13 @@ test('名簿は家庭単位で追記保存し、保護者・子ども・先生�
   assert(!parent(h, 'H001').data.members.some(row => row['子どもID'] === 'M-NEW'));
 });
 
+test('招待URL一覧用トークンは管理者だけに返し、保護者データには含めない', () => {
+  const h = fresh(); const admin = bootstrap(h); const family = parent(h);
+  assert.equal(admin.invites.teachers.length, 4); assert.equal(admin.invites.households.length, 10);
+  assert(admin.invites.teachers.every(row => row.token)); assert(admin.invites.households.every(row => row.token));
+  assert(!('invites' in family)); assert(!JSON.stringify(family).includes('招待トークン'));
+});
+
 test('表形式の名簿保存は学年を追記し、同じ家庭名の追加行を既存家庭へまとめる', () => {
   const h = fresh();
   h.admin('admin_save_roster', { records: [

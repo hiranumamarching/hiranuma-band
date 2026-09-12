@@ -315,8 +315,26 @@
   }
   function renderRoster() {
     const panel = $('panel'); const intro = el('section', undefined, 'card'); intro.append(el('h2', '名簿の管理'), el('p', '現在の名簿を表で直接編集します。保存前は自由に修正・行削除でき、保存後もこの画面には現在の内容だけを表示します。', 'muted'));
-    panel.append(intro, pills([['families', '家庭・保護者・子ども'], ['teachers', '先生']], rosterTab, value => { rosterTab = value; render(); }, '名簿の種類'));
-    if (rosterTab === 'families') renderFamilies(panel); else renderTeachers(panel);
+    panel.append(intro, pills([['families', '家庭・保護者・子ども'], ['teachers', '先生'], ['invites', '招待URL']], rosterTab, value => { rosterTab = value; render(); }, '名簿の種類'));
+    if (rosterTab === 'families') renderFamilies(panel); else if (rosterTab === 'teachers') renderTeachers(panel); else renderInviteUrls(panel);
+  }
+  function inviteUrl(page, parameter, token) {
+    const url = new URL(location.href); url.pathname = url.pathname.replace(/\/app\/admin\.html$/, `/app/${page}.html`); url.search = ''; url.hash = ''; url.searchParams.set(parameter, token); return url.href;
+  }
+  function copyText(value) {
+    if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(value);
+    const input = document.createElement('textarea'); input.value = value; document.body.append(input); input.select(); document.execCommand('copy'); input.remove(); return Promise.resolve();
+  }
+  function renderInviteUrls(panel) {
+    const card = el('section', undefined, 'card'); card.append(el('h2', '招待URL一覧'), el('p', 'このURLを知っている人は該当画面を開けます。運営メンバー・先生・各家庭だけに送ってください。', 'warning'));
+    const appendList = (title, rows, page, parameter) => {
+      card.append(el('h3', title));
+      if (!rows.length) { card.append(el('p', '在籍中の登録がありません。', 'muted')); return; }
+      rows.sort((a, b) => String(a.name).localeCompare(String(b.name))).forEach(row => {
+        const url = inviteUrl(page, parameter, row.token); const details = document.createElement('details'); details.className = 'slot'; const summary = el('summary', row.name || '名称未入力'); const body = el('div'); const input = document.createElement('input'); input.type = 'text'; input.value = url; input.readOnly = true; input.setAttribute('aria-label', `${row.name}の招待URL`); body.append(input, button('コピー', () => copyText(url).then(() => message(`${row.name}の招待URLをコピーしました。`)).catch(() => message('コピーできませんでした。URLを長押ししてコピーしてください。', true)), undefined, 'primary')); details.append(summary, body); card.append(details);
+      });
+    };
+    const invites = data.invites || {}; appendList('先生用', invites.teachers || [], 'teacher', 't'); appendList('保護者用', invites.households || [], 'parent', 'k'); panel.append(card);
   }
   function buildRosterDraft() {
     const households = active('households').sort((a, b) => String(a['家庭名']).localeCompare(String(b['家庭名'])));

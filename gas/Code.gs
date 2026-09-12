@@ -166,11 +166,13 @@ function teacherBootstrap_(auth) {
 }
 
 function adminBootstrap_() {
+  const householdRows = latestRows_(readTable_('m_households'), function(row) { return row['家庭ID']; });
+  const teacherRows = latestRows_(readTable_('m_teachers'), function(row) { return row['先生ID']; });
   const masters = {
-    households: latestRows_(readTable_('m_households'), function(row) { return row['家庭ID']; }).map(function(row) { return withoutKeys_(row, ['招待トークン']); }),
+    households: householdRows.map(function(row) { return withoutKeys_(row, ['招待トークン']); }),
     guardians: latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }),
     members: latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }),
-    teachers: latestRows_(readTable_('m_teachers'), function(row) { return row['先生ID']; }).map(function(row) { return withoutKeys_(row, ['招待トークン']); }),
+    teachers: teacherRows.map(function(row) { return withoutKeys_(row, ['招待トークン']); }),
     places: activePlaces_()
   };
   return {
@@ -185,6 +187,10 @@ function adminBootstrap_() {
     dutyAssignments: dutyAssignments_(),
     events: latestRows_(readTable_('events'), function(row) { return row['予定ID']; }),
     timelineItems: latestRows_(readTable_('timeline_items'), function(row) { return row['項目ID']; }).filter(function(row) { return asBoolean_(row['有効']); }),
+    invites: {
+      households: householdRows.filter(function(row) { return asBoolean_(row['在籍']) && row['招待トークン']; }).map(function(row) { return { id: row['家庭ID'], name: row['家庭名'], token: row['招待トークン'] }; }),
+      teachers: teacherRows.filter(function(row) { return asBoolean_(row['在籍']) && row['招待トークン']; }).map(function(row) { return { id: row['先生ID'], name: row['氏名'], token: row['招待トークン'] }; })
+    },
     references: referenceSources_(true)
   };
 }
