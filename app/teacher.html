@@ -15,9 +15,9 @@
     .session-meta { color:var(--muted); margin:0; font-size:.9rem; }
     .teacher-session { padding:12px 16px; margin:10px 0; }
     .teacher-session h2 { margin:0 0 2px; font-size:1.1rem; }
-    .slot-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:8px; }
+    .slot-grid { display:flex; gap:8px; margin-top:8px; align-items:stretch; }
     .slot { margin-top:0; }
-    .teacher-slot { display:grid; grid-template-columns:3em minmax(0,1fr); gap:8px; align-items:center; padding:7px 8px; border:1px solid var(--line); border-radius:9px; }
+    .teacher-slot { display:grid; grid-template-columns:3em minmax(0,1fr); flex:1 1 0; min-width:0; gap:8px; align-items:center; padding:7px 8px; border:1px solid var(--line); border-radius:9px; }
     .teacher-slot h3 { margin:0; font-size:.95rem; }
     .teacher-slot .pills { flex-wrap:nowrap; gap:4px; margin:0; }
     .teacher-slot .pills button { flex:1; min-height:36px; padding:4px 6px; font-size:.86rem; }
@@ -29,8 +29,8 @@
     @media(max-width:520px) {
       .teacher-session { padding:10px 12px; }
       .teacher-session h2 { font-size:1.02rem; }
-      .slot-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; }
-      .teacher-slot { grid-template-columns:3em minmax(0,1fr); }
+      .slot-grid { gap:5px; }
+      .teacher-slot { grid-template-columns:2.5em minmax(0,1fr); }
       .teacher-slot .pills { gap:2px; }
       .teacher-slot .pills button { min-height:34px; padding:3px 2px; font-size:.7rem; }
     }
