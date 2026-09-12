@@ -26,6 +26,8 @@
   }
   function slotCard(session, slot, label) {
     const card = el('section', undefined, 'slot teacher-slot');
+    card.style.flex = '1 1 0';
+    card.style.minWidth = '0';
     const heading = el('h3', label); const draft = currentValue(session['予定ID'], slot); let value = draft === undefined ? existingValue(session['予定ID'], slot) : draft;
     const options = [['○', '○ 参加可'], ['×', '× 不可']];
     const choices = el('div', undefined, 'pills'); choices.setAttribute('role', 'group'); choices.setAttribute('aria-label', `${session['日付']} ${label}の可否`);
@@ -47,6 +49,9 @@
     const place = session['場所名'] || (state.data.places || []).find(row => row['場所ID'] === session['場所ID'])?.['名称'] || session['場所ID'] || '場所未設定';
     card.append(el('p', `${place} · 集合 ${session['集合']} · ${session['開始']}–${session['終了']} · 解散 ${session['解散']}`, 'session-meta'));
     const grid = el('div', undefined, 'slot-grid');
+    grid.style.display = 'flex';
+    grid.style.flexWrap = 'nowrap';
+    grid.style.gap = '8px';
     for (const [slot, label] of slots(session)) {
       if (!isPracticeSlot(session, slot)) { const empty = el('div', undefined, 'not-needed'); empty.append(el('strong', `${label} · 練習なし`), el('span', 'この枠は実施しないため、先生の入力は不要です。')); grid.append(empty); continue; }
       if (!needsTeacherInput(session, slot)) { const self = el('div', undefined, 'not-needed'); const isEvent = session['種別'] === '本番'; self.append(el('strong', `${label} · ${isEvent ? '本番' : '自主練'}`), el('span', isEvent ? '本番は管理者が出席・担当を確定するため、先生の入力は不要です。' : '先生なしで実施する枠のため、先生の入力は不要です。')); grid.append(self); continue; }
