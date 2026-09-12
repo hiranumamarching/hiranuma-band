@@ -12,7 +12,7 @@
     .teacher-card { border-left:4px solid var(--navy); padding:14px 16px; margin:10px 0; }
     .teacher-card h2 { margin-bottom:2px; }
     .teacher-card p:last-child { margin-bottom:0; }
-    .session-meta { color:var(--muted); margin:0; font-size:.9rem; }
+    .session-meta { color:var(--muted); margin:0; font-size:.9rem; white-space:nowrap; }
     .teacher-session { padding:12px 16px; margin:10px 0; }
     .teacher-session h2 { margin:0 0 2px; font-size:1.1rem; }
     .slot-grid { display:flex; gap:8px; margin-top:8px; align-items:stretch; }
@@ -29,6 +29,7 @@
     @media(max-width:520px) {
       .teacher-session { padding:10px 12px; }
       .teacher-session h2 { font-size:1.02rem; }
+      .session-meta { font-size:.74rem; letter-spacing:-.02em; }
       .slot-grid { gap:5px; }
       .teacher-slot { grid-template-columns:2.5em minmax(0,1fr); }
       .teacher-slot .pills { gap:2px; }
