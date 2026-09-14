@@ -595,7 +595,7 @@ function publicDutyAssignments_(sessions) {
   const allowed = indexBy_(sessions, '予定ID');
   const guardians = indexBy_(readTable_('m_guardians'), '保護者ID');
   return dutyAssignments_().filter(function(row) { return !!allowed[row['予定ID']] && !!guardians[row['保護者ID']]; }).map(function(row) {
-    return { '予定ID': row['予定ID'], '役割': row['役割'], '表示名': guardians[row['保護者ID']]['表示名'] };
+    return { '予定ID': row['予定ID'], '役割': row['役割'], '区分': row['区分'] || '', '表示名': guardians[row['保護者ID']]['表示名'] };
   });
 }
 

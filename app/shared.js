@@ -20,7 +20,12 @@ window.BandShared = (() => {
         card.append(el('div', `${label}：${staffing === '先生あり' ? teacherNames.join('・') || '先生あり' : staffing}`));
       }
       const duties = (data.dutyAssignments || []).filter(d => d['予定ID'] === s['予定ID']);
-      card.append(el('p', `本日の当番：${duties.map(d => `${d['表示名']}さん（${d['役割']}）`).join('、') || '未定'}`));
+      const dutyText = duties.map(d => {
+        const division = String(d['区分'] || '');
+        const slot = division.startsWith('午後-') ? '午後' : division.startsWith('午前-') ? '午前' : '';
+        return `${d['表示名']}さん（${slot ? `${slot}・` : ''}${d['役割']}）`;
+      }).join('、');
+      card.append(el('p', `本日の当番：${dutyText || '未定'}`));
       const counts = data.attendanceCounts?.[s['予定ID']] || { morning: 0, afternoon: 0 };
       card.append(el('div', `出席予定：午前${counts.morning}名 ／ 午後${counts.afternoon}名`, 'muted'));
       if (s['備考']) card.append(el('p', s['備考'], 'note'));

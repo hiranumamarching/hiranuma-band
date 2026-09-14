@@ -285,7 +285,7 @@
     for (const d of data.dutyOffers.filter(d => d['予定ID'] === s['予定ID'] && d['メモ'])) { const guardian = data.masters.guardians.find(g => g['保護者ID'] === d['保護者ID']); notes.append(el('p', `${guardian?.['表示名'] || '退籍保護者'}：${d['メモ']}`, 'note')); }
     card.append(notes);
     const allRoles = [...new Set([...roles, ...data.dutyAssignments.filter(d => d['予定ID'] === s['予定ID']).map(d => d['役割'])])];
-    const rolePicker = el('div'); let role = '当番';
+    const rolePicker = el('div'); let role = '当番'; let dutySlot = '午前';
     const renderRole = () => {
       const addRole = el('div', undefined, 'row'); const roleInput = document.createElement('input'); roleInput.type = 'text'; roleInput.maxLength = 40; roleInput.placeholder = '役割を追加（例：レッスン見守り）';
       addRole.append(roleInput, button('役割を追加', () => {
@@ -295,11 +295,16 @@
       }));
       rolePicker.replaceChildren(addRole);
       rolePicker.append(pills(allRoles.map(r => [r, r]), role, r => { role = r; renderRole(); }, '当番の役割'));
+      rolePicker.append(pills([['午前', '午前'], ['午後', '午後']], dutySlot, value => { dutySlot = value; renderRole(); }, '当番の時間帯'));
       const options = active('guardians').map(g => [g['保護者ID'], `${g['表示名']}${available.includes(g) ? '（可）' : '（要確認）'}`]);
-      const roleAssignments = data.dutyAssignments.filter(d => d['予定ID'] === s['予定ID'] && d['役割'] === role && d['保護者ID']);
+      const roleAssignments = data.dutyAssignments.filter(d => {
+        if (d['予定ID'] !== s['予定ID'] || d['役割'] !== role || !d['保護者ID']) return false;
+        const division = String(d['区分'] || '');
+        return division.startsWith(`${dutySlot}-`) || (!division.startsWith('午前-') && !division.startsWith('午後-') && dutySlot === '午前');
+      });
       rolePicker.append(picker('担当を追加', options, '', value => {
         if (!value || roleAssignments.some(d => d['保護者ID'] === value)) return;
-        const assignment = { '予定ID': s['予定ID'], '役割': role, '区分': `A-${crypto.randomUUID()}`, '保護者ID': value };
+        const assignment = { '予定ID': s['予定ID'], '役割': role, '区分': `${dutySlot}-${crypto.randomUUID()}`, '保護者ID': value };
         data.dutyAssignments.push(assignment); mark('dutyAssignments', dutyKey(assignment)); renderRole();
       }));
       for (const assignment of roleAssignments) {
@@ -307,7 +312,12 @@
         const row = el('div', undefined, 'row'); row.append(el('span', guardian?.['表示名'] || '退籍保護者'), button('外す', () => { assignment['保護者ID'] = ''; mark('dutyAssignments', dutyKey(assignment)); renderRole(); }, undefined, 'danger')); rolePicker.append(row);
       }
       const assigned = data.dutyAssignments.filter(d => d['予定ID'] === s['予定ID'] && d['保護者ID']);
-      const assignedByRole = Object.entries(assigned.reduce((result, assignment) => { (result[assignment['役割']] ||= []).push(data.masters.guardians.find(g => g['保護者ID'] === assignment['保護者ID'])?.['表示名'] || '退籍保護者'); return result; }, {}));
+      const assignedByRole = Object.entries(assigned.reduce((result, assignment) => {
+        const division = String(assignment['区分'] || '');
+        const slotLabel = division.startsWith('午後-') ? '午後' : division.startsWith('午前-') ? '午前' : '時間帯未設定';
+        const key = `${assignment['役割']}（${slotLabel}）`;
+        (result[key] ||= []).push(data.masters.guardians.find(g => g['保護者ID'] === assignment['保護者ID'])?.['表示名'] || '退籍保護者'); return result;
+      }, {}));
       rolePicker.append(el('p', `割当一覧：${assignedByRole.map(([name, names]) => `${name}：${names.join('、')}`).join(' ／ ') || '未設定'}`));
       if (isSelfPractice(s)) rolePicker.append(el('p', missingFor(s).length ? `自主練の不足：${missingFor(s).join('、')}` : '自主練の公開条件を満たしています。', missingFor(s).length ? 'warning' : 'success'));
     };
