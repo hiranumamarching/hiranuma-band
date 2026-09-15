@@ -142,10 +142,49 @@
     $('panel').append(el('p', '「月設定」で対象月を作成してください。')); return false;
   }
   function renderPlan() {
-    renderSchedule();
-    if (!currentMonth()) return;
-    const panel = $('panel'); panel.append(el('hr'), el('h2', '出席集計・当番'), el('p', '先生・予定の確認に続けて、保護者の入力状況と当番を設定できます。', 'muted'));
-    renderDuty();
+    if (!requireMonth()) return;
+    const panel = $('panel');
+    panel.append(el('p', '日付ごとに先生・出席・当番を確認できます。詳しい変更は各日の「詳細・修正」を開いてください。', 'muted'), placeMaster());
+    for (const s of sessions()) panel.append(planCard(s));
+    panel.append(button('日付を指定して予定追加', () => {
+      const s = { '予定ID': `S${crypto.randomUUID()}`, '月ID': monthId, '日付': `${monthId}-01`, '種別': '通常練習', '実施有無_am': '実施', staffing_am: '未定', '担当先生ID_am': '', '実施有無_pm': '実施', staffing_pm: '未定', '担当先生ID_pm': '', ...practiceTimes({}), '場所ID': data.masters.places[0]?.['場所ID'] || '', '確定状態': '下書き', '備考': '' };
+      data.sessions.push(s); mark('sessions', s['予定ID']); render(); document.getElementById(s['予定ID'])?.scrollIntoView({ block: 'start' });
+    }));
+  }
+  function planCard(s) {
+    const card = el('article', undefined, 'card plan-card'); card.id = s['予定ID'];
+    const place = data.masters.places.find(p => p['場所ID'] === s['場所ID']);
+    const head = el('div', undefined, 'session-head'); head.append(el('h2', s['日付']), el('span', s['種別'], 'badge')); card.append(head);
+    card.append(el('p', `${place?.['名称'] || '場所未設定'}・集合 ${s['集合'] || '未設定'}・${s['開始'] || '未設定'}–${s['終了'] || '未設定'}・解散 ${s['解散'] || '未設定'}`, 'session-meta'));
+    const attendance = data.attendance.filter(a => a['予定ID'] === s['予定ID']);
+    card.append(el('p', `出席予定：午前${attendance.filter(a => bool(a['午前'])).length}名 ／ 午後${attendance.filter(a => bool(a['午後'])).length}名　　当番候補：${active('guardians').filter(g => data.dutyOffers.some(d => d['予定ID'] === s['予定ID'] && d['保護者ID'] === g['保護者ID'] && bool(d['可否']))).length}名`, 'attendance-summary'));
+    const overview = el('div', undefined, 'plan-overview');
+    for (const [slot, label] of slots(s)) {
+      const cell = el('section', undefined, 'plan-overview-cell'); cell.append(el('h3', label));
+      const teacher = el('p'); teacher.append(el('span', '先生', 'overview-label'), document.createElement('br'), document.createTextNode(teacherSummary(s, slot)));
+      const duty = el('p'); duty.append(el('span', '当番', 'overview-label'), document.createElement('br'), document.createTextNode(dutySummary(s, label)));
+      cell.append(teacher, duty);
+      overview.append(cell);
+    }
+    card.append(overview);
+    const details = document.createElement('details'); details.className = 'plan-details'; const summary = document.createElement('summary'); summary.textContent = '詳細・修正'; details.append(summary);
+    const edit = document.createElement('div'); edit.append(sessionCard(s));
+    const duty = document.createElement('section'); duty.append(el('h3', '出席集計・当番')); const holder = document.createElement('div'); holder.append(dutyCard(s)); duty.append(holder); edit.append(duty);
+    details.append(edit); card.append(details); return card;
+  }
+  function teacherSummary(s, slot) {
+    if ((s[`実施有無_${slot}`] || '実施') === 'なし') return '練習なし';
+    const staffing = s[`staffing_${slot}`] || '先生あり'; if (staffing !== '先生あり') return staffing;
+    const names = teacherIds(s[`担当先生ID_${slot}`]).map(id => data.masters.teachers.find(t => t['先生ID'] === id)?.['氏名']).filter(Boolean);
+    return names.join('、') || '担当未定';
+  }
+  function dutySummary(s, label) {
+    const valid = new Set(active('guardians').map(g => g['保護者ID']));
+    const names = data.dutyAssignments.filter(d => {
+      if (d['予定ID'] !== s['予定ID'] || !d['保護者ID'] || !valid.has(d['保護者ID'])) return false;
+      const division = String(d['区分'] || ''); return division.startsWith(`${label}-`) || (!division.startsWith('午前-') && !division.startsWith('午後-') && label === '午前');
+    }).map(d => data.masters.guardians.find(g => g['保護者ID'] === d['保護者ID'])?.['表示名']).filter(Boolean);
+    return names.join('、') || '未設定';
   }
   function slots(s) { return s['種別'] === '本番' ? [['am', '終日']] : [['am', '午前'], ['pm', '午後']]; }
   function renderSchedule() {

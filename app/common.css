@@ -352,6 +352,38 @@ hr {
 .month-session-row button {
   flex:0 0 auto;
 }
+.plan-overview {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  margin-top:12px;
+}
+.plan-overview-cell {
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:12px;
+}
+.plan-overview-cell h3 {
+  margin:0 0 8px;
+}
+.plan-overview-cell p {
+  margin:6px 0;
+}
+.overview-label {
+  color:var(--muted);
+  font-size:.82rem;
+}
+.plan-details {
+  margin-top:12px;
+}
+.plan-details > summary {
+  cursor:pointer;
+  color:var(--navy);
+  font-weight:700;
+}
+.plan-details .card {
+  margin-top:10px;
+}
 @media(max-width:420px) {
   .shell {
     padding-left:12px;
@@ -377,6 +409,13 @@ hr {
     align-items:flex-start;
     flex-direction:column;
     gap:6px;
+  }
+  .plan-overview {
+    gap:6px;
+  }
+  .plan-overview-cell {
+    padding:9px;
+    font-size:.9rem;
   }
   h1 {
     font-size:1.45rem;
