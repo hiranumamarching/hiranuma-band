@@ -15,7 +15,7 @@ function setup(search = '?a=DUMMY001') {
   return { context, storage, requests, get replaced() { return replaced; }, create: role => context.window.BandAPI.create(role) };
 }
 test('管理者トークンをURLから除去して端末保存・再訪・認証解除', () => {
-  const h=setup('?a=DUMMY001&view=month'); const api=h.create('a'); assert.equal(h.replaced,'/app/admin.html?view=month'); assert(api.hasToken); assert.equal(h.storage.get('hiranuma.app.token.a'),'DUMMY001');
+  const h=setup('?a=DUMMY001&view=month'); const api=h.create('a'); assert.equal(h.replaced,undefined); assert(api.hasToken); assert.equal(h.storage.get('hiranuma.app.token.a'),'DUMMY001');
   h.context.location.href='https://example.invalid/app/admin.html'; const again=h.create('a'); assert(again.hasToken); again.forget(); assert(!h.create('a').hasToken);
 });
 test('接続先をGASのexecだけに限定・トークンはPOST本文に送信', async () => {

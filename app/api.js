@@ -16,8 +16,12 @@ window.BandAPI = (() => {
     let token = incoming === null ? storageGet(key) : incoming;
     if (incoming !== null) {
       storageSet(key, token);
-      url.searchParams.delete(role);
-      history.replaceState(null, '', url.pathname + url.search + url.hash);
+      // 管理者URLは再起動後も同じURLを開けるよう、aトークンをURLに残す。
+      // 先生・保護者のトークンは従来どおりアドレスバーから除去する。
+      if (role !== 'a') {
+        url.searchParams.delete(role);
+        history.replaceState(null, '', url.pathname + url.search + url.hash);
+      }
     }
     let endpoint = storageGet(endpointKey) || defaultEndpoint;
     const inviteLabel = role === 'a' ? '管理者' : role === 't' ? '先生' : '保護者';
