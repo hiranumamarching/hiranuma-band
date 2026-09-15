@@ -14,7 +14,7 @@ function setup(search = '?a=DUMMY001') {
   vm.runInContext(source, context);
   return { context, storage, requests, get replaced() { return replaced; }, create: role => context.window.BandAPI.create(role) };
 }
-test('管理者トークンをURLから除去して端末保存・再訪・認証解除', () => {
+test('招待トークンをURLに残して再訪・認証解除', () => {
   const h=setup('?a=DUMMY001&view=month'); const api=h.create('a'); assert.equal(h.replaced,undefined); assert(api.hasToken); assert.equal(h.storage.get('hiranuma.app.token.a'),'DUMMY001');
   h.context.location.href='https://example.invalid/app/admin.html'; const again=h.create('a'); assert(again.hasToken); again.forget(); assert(!h.create('a').hasToken);
 });
