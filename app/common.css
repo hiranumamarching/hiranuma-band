@@ -334,6 +334,24 @@ hr {
 .status-line {
   margin:10px 0;
 }
+.month-session-list {
+  border-top:1px solid var(--line);
+}
+.month-session-row {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 0;
+  border-bottom:1px solid var(--line);
+}
+.month-session-row span {
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+.month-session-row button {
+  flex:0 0 auto;
+}
 @media(max-width:420px) {
   .shell {
     padding-left:12px;
@@ -354,6 +372,11 @@ hr {
   }
   .grid {
     gap:8px;
+  }
+  .month-session-row {
+    align-items:flex-start;
+    flex-direction:column;
+    gap:6px;
   }
   h1 {
     font-size:1.45rem;

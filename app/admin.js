@@ -4,7 +4,7 @@
   const $ = id => document.getElementById(id);
   const bool = v => v === true || v === 'true' || v === 1 || v === '1' || v === '○';
   const roles = ['当番'];
-  const tabs = [['month', '月設定'], ['schedule', '先生・予定'], ['duty', '集計・当番'], ['event', '本番'], ['publish', '公開確認'], ['roster', '名簿'], ['references', 'ガイド・本番候補']];
+  const tabs = [['month', '月設定'], ['plan', '予定・当番'], ['event', '本番'], ['publish', '公開確認'], ['roster', '名簿'], ['references', 'ガイド・本番候補']];
   const dirty = { sessions: new Set(), selfPractice: new Set(), dutyAssignments: new Set(), teacherAvailability: new Set(), teachers: new Set(), events: new Set(), timelineItems: new Set(), guideItems: new Set(), annualEvents: new Set() };
   const today = new Date();
   let monthId = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -91,7 +91,7 @@
       const b = button(label, () => { tab = id; render(); }, tab === id); b.setAttribute('aria-controls', 'panel'); return b;
     }));
     $('panel').replaceChildren();
-    ({ month: renderMonth, schedule: renderSchedule, duty: renderDuty, event: renderEvent, publish: renderPublish, roster: renderRoster, references: renderReferences })[tab]();
+    ({ month: renderMonth, plan: renderPlan, schedule: renderSchedule, duty: renderDuty, event: renderEvent, publish: renderPublish, roster: renderRoster, references: renderReferences })[tab]();
     updateSaveState();
   }
   function switchMonth(next) {
@@ -117,14 +117,35 @@
       card.append(button('土曜日の候補を作成', () => run(async () => {
         const prior = new Date(year, Number(monthId.slice(5)) - 2, 1);
         const copyFromMonthId = copy ? `${prior.getFullYear()}-${String(prior.getMonth() + 1).padStart(2, '0')}` : '';
-        await api.request('admin_create_month', { monthId, copyFromMonthId, teacherDeadline: '', ...deadlineDraft }); tab = 'schedule'; await load();
+        await api.request('admin_create_month', { monthId, copyFromMonthId, teacherDeadline: '', ...deadlineDraft }); tab = 'plan'; await load();
       }, '土曜日の候補を作成しました。'), undefined, 'primary'));
-    } else card.append(el('p', `${sessions().length}件の候補があります。締切の変更は上部の「変更を保存」で保存します。`));
+    } else {
+      card.append(el('p', `${sessions().length}件の候補があります。締切の変更は上部の「変更を保存」で保存します。`));
+      const list = el('div', undefined, 'month-session-list');
+      sessions().forEach(s => {
+        const row = el('div', undefined, 'month-session-row');
+        const place = data.masters.places.find(p => p['場所ID'] === s['場所ID']);
+        const summary = `${s['日付']}・${s['種別']}・${place?.['名称'] || '場所未設定'}・集合 ${s['集合'] || '未設定'}・解散 ${s['解散'] || '未設定'}`;
+        row.append(el('span', summary));
+        row.append(button('予定を修正', () => {
+          tab = 'plan'; render();
+          document.getElementById(s['予定ID'])?.scrollIntoView({ block: 'start' });
+        }));
+        list.append(row);
+      });
+      card.append(el('h3', '候補日一覧'), list);
+    }
     panel.append(card);
   }
   function requireMonth() {
     if (currentMonth()) return true;
     $('panel').append(el('p', '「月設定」で対象月を作成してください。')); return false;
+  }
+  function renderPlan() {
+    renderSchedule();
+    if (!currentMonth()) return;
+    const panel = $('panel'); panel.append(el('hr'), el('h2', '出席集計・当番'), el('p', '先生・予定の確認に続けて、保護者の入力状況と当番を設定できます。', 'muted'));
+    renderDuty();
   }
   function slots(s) { return s['種別'] === '本番' ? [['am', '終日']] : [['am', '午前'], ['pm', '午後']]; }
   function renderSchedule() {
@@ -254,7 +275,7 @@
       let pick; const draw = () => picker(key, guardians, row[key], v => { set(key, v); const next = draw(); pick.replaceWith(next); pick = next; }); pick = draw(); wrap.append(pick);
     }
     wrap.append(field('緊急連絡先（管理者のみ表示）', row['緊急連絡先'], v => set('緊急連絡先', v)), check('施設使用申請済（確認用・公開の必須条件には含めない）', row['施設使用申請済'], v => set('施設使用申請済', v)), field('実施報告（管理者のみ表示）', row['実施報告'], v => set('実施報告', v), 'textarea'), status);
-    wrap.append(button('集計・当番で2名を割り当てる', () => { tab = 'duty'; render(); })); refresh(); return wrap;
+    wrap.append(button('当番を割り当てる', () => { tab = 'plan'; render(); })); refresh(); return wrap;
   }
   function renderDuty() {
     if (!requireMonth()) return;
@@ -375,7 +396,7 @@
     table.append(head, body); wrap.append(table); panel.append(note, add, wrap);
   }
   function renderTeachers(panel) {
-    panel.append(el('p', '候補日入力に表示する先生です。スマホを使わない先生も、ここには登録し、可否は管理者が「先生・予定」タブで代理入力できます。', 'muted'));
+    panel.append(el('p', '候補日入力に表示する先生です。スマホを使わない先生も、ここには登録し、可否は管理者が「予定・当番」タブで代理入力できます。', 'muted'));
     panel.append(button('先生を追加', () => { const teacher = { '先生ID': `T-${crypto.randomUUID()}`, '氏名': '', '在籍': true }; data.masters.teachers.push(teacher); mark('teachers', rosterKeys.teachers(teacher)); render(); }, undefined, 'primary'));
     data.masters.teachers.sort((a, b) => Number(bool(b['在籍'])) - Number(bool(a['在籍'])) || String(a['氏名']).localeCompare(String(b['氏名']))).forEach(teacher => {
       const card = el('article', undefined, 'card roster-card'); card.append(el('h2', teacher['氏名'] || '新しい先生'), el('span', bool(teacher['在籍']) ? '在籍中' : '在籍終了', 'badge'));
@@ -393,7 +414,7 @@
     if (!requireMonth()) return;
     const panel = $('panel'); const candidates = eventSessions();
     panel.append(el('p', '本番の基本情報と、保護者へ共有する当日の流れを作成します。ステージ配置・器材は次の画面で追加します。', 'muted'));
-    if (!candidates.length) { panel.append(el('section', '「先生・予定」タブで予定の種別を「本番」にすると、ここで編集できます。', 'card warning')); return; }
+    if (!candidates.length) { panel.append(el('section', '「予定・当番」タブで予定の種別を「本番」にすると、ここで編集できます。', 'card warning')); return; }
     let selectedId = candidates[0]['予定ID'];
     const selector = el('section', undefined, 'card'); selector.append(el('h2', '編集する本番'));
     const body = el('div'); const draw = () => { body.replaceChildren(eventEditor(candidates.find(s => s['予定ID'] === selectedId))); };
@@ -484,7 +505,7 @@
     if (items.length) { const list = el('ul', undefined, 'checklist error'); items.forEach(item => list.append(el('li', item))); card.append(list); }
     else card.append(el('p', sessions().length ? '自主練の公開条件を満たしています。' : '公開する予定がありません。', sessions().length ? 'success' : 'warning'));
     if (hasChanges()) card.append(el('p', '未保存の変更があります。先に「変更を保存」を押してください。', 'warning'));
-    card.append(el('p', '予定・当番・自主練情報を変更して保存すると、その予定は下書きに戻ります。公開ボタンで再び共有できます。', 'muted'));
+    card.append(el('p', '予定・当番・自主練情報を変更して保存すると、その予定は下書きに戻ります。保存後に自動で公開されます。', 'muted'));
     const publish = button(`${monthId}の予定を${currentMonth()['状態'] === '公開' ? '再公開' : '公開'}`, () => run(async () => { await api.request('admin_publish_month', { monthId }); await load(); }, '公開しました。下の共有画面に反映されています。'), undefined, 'primary'); publish.id = 'publish-month'; card.append(publish); panel.append(card);
     panel.append(el('h2', '現在の共有画面（公開済みのみ）')); const shared = el('div'); if (data.shared) BandShared.render(shared, data.shared, monthId); else shared.append(el('p', '最新の公開状態を確認できていません。変更を保存し直すか、再読み込みしてください。', 'warning')); panel.append(shared);
   }
@@ -510,8 +531,12 @@
       if (records.length) await api.request(action, { records }); dirty[collection].clear();
     }
     await load();
+    // 保存した変更をそのまま共有画面へ反映する。公開条件に不足がある場合は、
+    // 保存自体は完了したうえで公開処理のエラーを呼び出し元へ返す。
+    await api.request('admin_publish_month', { monthId });
+    await load();
   }
-  $('save').addEventListener('click', () => run(saveChanges, '変更を保存しました。公開確認タブで公開できます。'));
+  $('save').addEventListener('click', () => run(saveChanges, '変更を保存し、公開画面へ反映しました。'));
   $('reload').addEventListener('click', () => { if (!hasChanges() || confirm('未保存の変更を破棄して再読み込みしますか？')) run(load, '最新の状態を読み込みました。'); });
   $('forget').addEventListener('click', () => { if (!hasChanges() || confirm('未保存の変更を破棄して認証を解除しますか？')) { api.forget(); data = undefined; $('panel').replaceChildren(); $('workspace').hidden = true; message('認証を解除しました。再度利用するには管理者の招待URLから開いてください。'); } });
   $('connect').addEventListener('click', () => run(async () => { api.configure($('api-url').value.trim()); await load(); }, '接続しました。'));
