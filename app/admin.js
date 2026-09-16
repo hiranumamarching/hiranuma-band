@@ -4,7 +4,7 @@
   const $ = id => document.getElementById(id);
   const bool = v => v === true || v === 'true' || v === 1 || v === '1' || v === '○';
   const roles = ['当番'];
-  const tabs = [['month', '月設定'], ['plan', '予定・当番'], ['event', '本番'], ['publish', '公開確認'], ['roster', '名簿'], ['references', 'ガイド・本番候補']];
+  const tabs = [['month', '日程作成'], ['plan', '予定・当番'], ['event', '本番'], ['publish', '公開確認'], ['roster', '名簿'], ['references', 'ガイド・本番候補']];
   const dirty = { sessions: new Set(), selfPractice: new Set(), dutyAssignments: new Set(), teacherAvailability: new Set(), teachers: new Set(), events: new Set(), timelineItems: new Set(), guideItems: new Set(), annualEvents: new Set() };
   const today = new Date();
   let monthId = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -112,7 +112,7 @@
     monthId = next; deadlineDraft = undefined; render();
   }
   function renderMonth() {
-    const panel = $('panel'); const card = el('section', undefined, 'card'); card.append(el('h2', '対象月'));
+    const panel = $('panel'); const card = el('section', undefined, 'card'); card.append(el('h2', '月間スケジュール'), el('p', '対象月を選んで、練習候補日を作成・編集します。', 'muted'));
     const year = Number(monthId.slice(0, 4));
     const yearRow = el('div', undefined, 'row');
     yearRow.append(button('前年', () => switchMonth(`${Math.max(2000, year - 1)}-${monthId.slice(5)}`)));
@@ -126,11 +126,11 @@
     card.append(deadlines, el('p', '先生の入力締切はありません。保護者の締切だけ必要に応じて設定できます。', 'muted'));
     if (!month) {
       let copy = true; card.append(check('前月の集合・開始・終了・解散時間を引き継ぐ', true, v => { copy = v; }));
-      card.append(button('土曜日の候補を作成', () => run(async () => {
+      card.append(button('土曜日の日程を作成', () => run(async () => {
         const prior = new Date(year, Number(monthId.slice(5)) - 2, 1);
         const copyFromMonthId = copy ? `${prior.getFullYear()}-${String(prior.getMonth() + 1).padStart(2, '0')}` : '';
         await api.request('admin_create_month', { monthId, copyFromMonthId, teacherDeadline: '', ...deadlineDraft }); tab = 'plan'; await load();
-      }, '土曜日の候補を作成しました。'), undefined, 'primary'));
+      }, '土曜日の日程を作成しました。'), undefined, 'primary'));
     } else {
       card.append(el('p', `${sessions().length}件の候補があります。締切の変更は上部の「変更を保存」で保存します。`));
       const list = el('div', undefined, 'month-session-list');
@@ -151,7 +151,7 @@
   }
   function requireMonth() {
     if (currentMonth()) return true;
-    $('panel').append(el('p', '「月設定」で対象月を作成してください。')); return false;
+    $('panel').append(el('p', '「日程作成」で対象月を作成してください。')); return false;
   }
   function renderPlan() {
     if (!requireMonth()) return;
@@ -461,7 +461,7 @@
     });
     return rows;
   }
-  function newRosterRow() { return { id: crypto.randomUUID(), householdId: `H-${crypto.randomUUID()}`, householdName: '', guardianId: `G-${crypto.randomUUID()}`, guardianName: '', guardianRoles: '', child1Id: `M-${crypto.randomUUID()}`, child1Name: '', child1Grade: '', child2Id: `M-${crypto.randomUUID()}`, child2Name: '', child2Grade: '' }; }
+  function newRosterRow() { return { id: crypto.randomUUID(), householdId: `H-${crypto.randomUUID()}`, householdName: '', guardianId: `G-${crypto.randomUUID()}`, guardianName: '', guardianRoles: '', child1Id: '', child1Name: '', child1Grade: '', child2Id: '', child2Name: '', child2Grade: '' }; }
   function renderFamilies(panel) {
     const note = el('p', '家庭名は1回だけ表示し、その下に保護者と子どもを分けて入力します。', 'muted');
     const add = button('家庭を追加', () => { rosterDraft.push(newRosterRow()); markRoster(); render(); }, undefined, 'primary');
@@ -471,7 +471,7 @@
     const textInput = (row, key, placeholder, label) => { const input = document.createElement('input'); input.value = row[key] || ''; input.placeholder = placeholder; input.setAttribute('aria-label', label || placeholder); input.addEventListener('input', () => { row[key] = input.value; markRoster(); }); return input; };
     const removePerson = (row, kind, slot) => {
       if (kind === 'guardian') { row.guardianName = ''; row.guardianRoles = ''; }
-      else { row[`${slot}Name`] = ''; row[`${slot}Grade`] = ''; }
+      else { row[`${slot}Id`] = ''; row[`${slot}Name`] = ''; row[`${slot}Grade`] = ''; }
       if (!row.guardianName && !row.child1Name && !row.child2Name) rosterDraft = rosterDraft.filter(item => item.id !== row.id);
       markRoster(); render();
     };
@@ -483,7 +483,7 @@
       group.rows.filter(row => row.guardianName || (!row.child1Name && !row.child2Name)).forEach(row => { const item = el('div', undefined, 'family-roster-person'); item.append(textInput(row, 'guardianName', '保護者名'), textInput(row, 'guardianRoles', '役職・対応できること（任意）'), button('×', () => removePerson(row, 'guardian'), undefined, 'danger')); guardianList.append(item); });
       guardians.append(guardianList, button('保護者を追加', () => { const row = { ...newRosterRow(), householdId: group.householdId, householdName: familyName.value }; rosterDraft.push(row); markRoster(); render(); })); card.append(guardians);
       const children = el('section', undefined, 'family-roster-section'); children.append(el('h3', '子ども')); const childList = el('div', undefined, 'family-roster-people');
-      group.rows.forEach(row => { for (const slot of ['child1', 'child2']) if (row[`${slot}Name`]) { const item = el('div', undefined, 'family-roster-person'); item.append(textInput(row, `${slot}Name`, '子どもの氏名'), textInput(row, `${slot}Grade`, '学年', '学年'), button('×', () => removePerson(row, 'child', slot), undefined, 'danger')); childList.append(item); } });
+      group.rows.forEach(row => { for (const slot of ['child1', 'child2']) if (row[`${slot}Name`] || row[`${slot}Id`]) { const item = el('div', undefined, 'family-roster-person'); item.append(textInput(row, `${slot}Name`, '子どもの氏名'), textInput(row, `${slot}Grade`, '学年', '学年'), button('×', () => removePerson(row, 'child', slot), undefined, 'danger')); childList.append(item); } });
       children.append(childList, button('子どもを追加', () => { const row = group.rows.find(item => !item.child1Name || !item.child2Name) || { ...newRosterRow(), householdId: group.householdId, householdName: familyName.value }; const slot = !row.child1Name ? 'child1' : 'child2'; row[`${slot}Id`] ||= `M-${crypto.randomUUID()}`; if (!group.rows.includes(row)) rosterDraft.push(row); markRoster(); render(); })); card.append(children); list.append(card);
     });
     panel.append(note, add, list);
