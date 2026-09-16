@@ -158,6 +158,7 @@
     card.append(el('p', `${place?.['名称'] || '場所未設定'}・集合 ${s['集合'] || '未設定'}・${s['開始'] || '未設定'}–${s['終了'] || '未設定'}・解散 ${s['解散'] || '未設定'}`, 'session-meta'));
     const attendance = data.attendance.filter(a => a['予定ID'] === s['予定ID']);
     card.append(el('p', `出席予定：午前${attendance.filter(a => bool(a['午前'])).length}名 ／ 午後${attendance.filter(a => bool(a['午後'])).length}名　　当番候補：${active('guardians').filter(g => data.dutyOffers.some(d => d['予定ID'] === s['予定ID'] && d['保護者ID'] === g['保護者ID'] && bool(d['可否']))).length}名`, 'attendance-summary'));
+    card.append(memberDetails(s, attendance));
     const overview = el('div', undefined, 'plan-overview');
     for (const [slot, label] of slots(s)) {
       const cell = el('section', undefined, 'plan-overview-cell'); cell.append(el('h3', label));
@@ -171,6 +172,24 @@
     const edit = document.createElement('div'); edit.append(sessionCard(s));
     const duty = document.createElement('section'); duty.append(el('h3', '出席集計・当番')); const holder = document.createElement('div'); holder.append(dutyCard(s)); duty.append(holder); edit.append(duty);
     details.append(edit); card.append(details); return card;
+  }
+  function memberDetails(s, attendance) {
+    const details = document.createElement('details'); details.className = 'member-details';
+    details.append(Object.assign(document.createElement('summary'), { textContent: '参加メンバーを表示（全員）' }));
+    const table = el('table'); const head = el('tr'); ['子ども', '午前', '午後'].forEach(label => head.append(el('th', label))); const thead = el('thead'); thead.append(head); table.append(thead);
+    const body = el('tbody');
+    active('members').forEach(member => {
+      const row = attendance.find(a => a['子どもID'] === member['子どもID']) || {};
+      const tr = el('tr'); tr.append(el('td', member['氏名']), memberStatus(row['午前']), memberStatus(row['午後'])); body.append(tr);
+    });
+    table.append(body); details.append(table); return details;
+  }
+  function memberStatus(value) {
+    const cell = el('td');
+    if (bool(value)) { cell.textContent = '○ 参加'; cell.className = 'status-ok'; }
+    else if (value === false || value === 'false' || value === '×') { cell.textContent = '× 不参加'; cell.className = 'status-no'; }
+    else { cell.textContent = '未入力'; cell.className = 'status-blank'; }
+    return cell;
   }
   function teacherSummary(s, slot) {
     if ((s[`実施有無_${slot}`] || '実施') === 'なし') return '練習なし';
