@@ -29,6 +29,18 @@
   const currentMonth = () => data.months.find(m => monthKey(m['月ID']) === monthKey(monthId));
   const sessions = () => data.sessions.filter(s => monthKey(s['月ID']) === monthKey(monthId)).sort((a, b) => a['日付'].localeCompare(b['日付']));
   const active = name => data.masters[name].filter(r => bool(r['在籍']));
+  function memberGradeKey(member) {
+    const value = String(member['学年'] || '').trim();
+    if (!value) return [9, 99];
+    if (value.includes('年長')) return [0, 0];
+    const number = Number(value.match(/\d+/)?.[0] || 99);
+    const level = value.includes('中') ? 2 : value.includes('高') ? 3 : 1;
+    return [level, number];
+  }
+  const sortedMembers = () => active('members').slice().sort((a, b) => {
+    const [aLevel, aGrade] = memberGradeKey(a); const [bLevel, bGrade] = memberGradeKey(b);
+    return aLevel - bLevel || aGrade - bGrade || String(a['氏名'] || '').localeCompare(String(b['氏名'] || ''), 'ja');
+  });
   const hasChanges = () => monthDirty || rosterDirty || Object.values(dirty).some(set => set.size);
   function el(tag, text, className) { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (className) n.className = className; return n; }
   function button(label, click, selected, className) {
@@ -178,7 +190,7 @@
     details.append(Object.assign(document.createElement('summary'), { textContent: '参加メンバーを表示（全員）' }));
     const table = el('table'); const head = el('tr'); ['子ども', '午前', '午後'].forEach(label => head.append(el('th', label))); const thead = el('thead'); thead.append(head); table.append(thead);
     const body = el('tbody');
-    active('members').forEach(member => {
+    sortedMembers().forEach(member => {
       const row = attendance.find(a => a['子どもID'] === member['子どもID']) || {};
       const tr = el('tr'); tr.append(el('td', member['氏名']), memberStatus(row['午前']), memberStatus(row['午後'])); body.append(tr);
     });
@@ -507,7 +519,7 @@
     row.append(grid, pills([['前日', '前日'], ['当日', '当日']], item['日区分'], value => set('日区分', value), '日区分'), pills([['当日進行', '当日進行'], ['ステージ進行', 'ステージ進行']], item.scope, value => set('scope', value), '進行の種類'), pills([['予定', '予定'], ['曲', '曲'], ['MC', 'MC'], ['転換', '転換'], ['その他', 'その他']], item['種別'], value => set('種別', value), '項目の種別'), field('内容', item['内容'], value => set('内容', value), 'textarea'));
     row.append(picker('場所', data.masters.places.map(place => [place['場所ID'], place['名称']]), item['場所ID'], value => set('場所ID', value)));
     if (item['種別'] === 'MC') {
-      const selected = teacherIds(item['担当']); const members = active('members'); const people = el('div'); people.append(el('h3', 'MC担当（任意）')); const buttons = el('div', undefined, 'pills');
+      const selected = teacherIds(item['担当']); const members = sortedMembers(); const people = el('div'); people.append(el('h3', 'MC担当（任意）')); const buttons = el('div', undefined, 'pills');
       members.forEach(member => buttons.append(button(member['氏名'], () => { const next = teacherIds(item['担当']); const index = next.indexOf(member['子どもID']); if (index >= 0) next.splice(index, 1); else next.push(member['子どもID']); set('担当', next.join(','), true); }, selected.includes(member['子どもID'])))); people.append(buttons); row.append(people);
     }
     row.append(field('担当の自由入力（保護者名など）', item['担当自由入力'], value => set('担当自由入力', value)), field('持ち物', item['持ち物'], value => set('持ち物', value)), field('注意点', item['注意点'], value => set('注意点', value), 'textarea'));

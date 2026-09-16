@@ -3,7 +3,7 @@
 window.BandAPI = (() => {
   const endpointKey = 'hiranuma.app.endpoint';
   // 手動デプロイ後、ここには公開可能な Web App URL のみ設定してよい。
-  const defaultEndpoint = '';
+  const defaultEndpoint = 'https://script.google.com/macros/s/AKfycbyHCjWCQTb6H61Sz4hAY4Luo83e5i3SR0wkmUPRdtI-3P2o-VzdBmovHv48pK-kZUVMYg/exec';
   function storageGet(key) { try { return localStorage.getItem(key) || ''; } catch { return ''; } }
   function storageSet(key, value) { try { if (value) localStorage.setItem(key, value); else localStorage.removeItem(key); } catch { /* 保存できない端末では今回の招待URLのみ利用 */ } }
   function validEndpoint(value) {
