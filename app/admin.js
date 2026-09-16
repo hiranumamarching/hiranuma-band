@@ -462,24 +462,39 @@
     return rows;
   }
   function newRosterRow() { return { id: crypto.randomUUID(), householdId: `H-${crypto.randomUUID()}`, householdName: '', guardianId: `G-${crypto.randomUUID()}`, guardianName: '', guardianRoles: '', child1Id: `M-${crypto.randomUUID()}`, child1Name: '', child1Grade: '', child2Id: `M-${crypto.randomUUID()}`, child2Name: '', child2Grade: '' }; }
-  function rosterInput(row, key, placeholder) {
-    const input = el('input'); input.value = row[key] || ''; input.placeholder = placeholder; input.setAttribute('aria-label', placeholder);
-    input.addEventListener('input', () => { row[key] = input.value; if (key === 'householdName' && row.householdId) rosterDraft.filter(item => item.householdId === row.householdId).forEach(item => { item.householdName = input.value; }); markRoster(); });
-    return input;
-  }
   function renderFamilies(panel) {
-    const note = el('p', '兄弟姉妹は2人まで同じ行に入力できます。3人目以降や保護者を追加する場合は、同じ家庭名を入力して行を追加してください。', 'muted');
-    const add = button('行を追加', () => { rosterDraft.push(newRosterRow()); markRoster(); render(); }, undefined, 'primary'); const wrap = el('div', undefined, 'table-wrap roster-table-wrap'); const table = el('table', undefined, 'roster-table');
-    const head = el('thead'); const headerRow = el('tr'); ['家庭名', '保護者名', '役職・対応できること（任意）', '子どもの氏名', '学年', '子どもの氏名（2人目・任意）', '学年', ''].forEach(label => headerRow.append(el('th', label))); head.append(headerRow); const body = el('tbody');
-    rosterDraft.forEach(row => { const tr = el('tr'); [['householdName', '家庭名'], ['guardianName', '保護者名'], ['guardianRoles', '例：会計・当番'], ['child1Name', '子どもの氏名'], ['child1Grade', '例：3年'], ['child2Name', '2人目（任意）'], ['child2Grade', '例：1年']].forEach(([key, placeholder]) => { const td = el('td'); td.append(rosterInput(row, key, placeholder)); tr.append(td); }); const action = el('td'); action.append(button('×', () => confirmRemoval(row.guardianName || row.householdName || 'この行', () => { rosterDraft = rosterDraft.filter(item => item.id !== row.id); markRoster(); render(); }), undefined, 'danger')); tr.append(action); body.append(tr); });
-    table.append(head, body); wrap.append(table); panel.append(note, add, wrap);
+    const note = el('p', '家庭名は1回だけ表示し、その下に保護者と子どもを分けて入力します。', 'muted');
+    const add = button('家庭を追加', () => { rosterDraft.push(newRosterRow()); markRoster(); render(); }, undefined, 'primary');
+    const groups = [...new Map(rosterDraft.map(row => [row.householdId, { householdId: row.householdId, householdName: row.householdName || '', rows: [] }])).values()];
+    rosterDraft.forEach(row => groups.find(group => group.householdId === row.householdId)?.rows.push(row));
+    const list = el('div', undefined, 'family-roster-list');
+    const textInput = (row, key, placeholder, label) => { const input = document.createElement('input'); input.value = row[key] || ''; input.placeholder = placeholder; input.setAttribute('aria-label', label || placeholder); input.addEventListener('input', () => { row[key] = input.value; markRoster(); }); return input; };
+    const removePerson = (row, kind, slot) => {
+      if (kind === 'guardian') { row.guardianName = ''; row.guardianRoles = ''; }
+      else { row[`${slot}Name`] = ''; row[`${slot}Grade`] = ''; }
+      if (!row.guardianName && !row.child1Name && !row.child2Name) rosterDraft = rosterDraft.filter(item => item.id !== row.id);
+      markRoster(); render();
+    };
+    groups.forEach(group => {
+      const card = el('article', undefined, 'card family-roster-card'); const head = el('div', undefined, 'family-roster-head');
+      const familyName = document.createElement('input'); familyName.value = group.householdName; familyName.placeholder = '家庭名'; familyName.setAttribute('aria-label', '家庭名'); familyName.addEventListener('input', () => { rosterDraft.filter(row => row.householdId === group.householdId).forEach(row => { row.householdName = familyName.value; }); markRoster(); });
+      head.append(familyName, button('家庭を削除', () => confirmRemoval(group.householdName || 'この家庭', () => { rosterDraft = rosterDraft.filter(row => row.householdId !== group.householdId); markRoster(); render(); }), undefined, 'danger')); card.append(head);
+      const guardians = el('section', undefined, 'family-roster-section'); guardians.append(el('h3', '保護者')); const guardianList = el('div', undefined, 'family-roster-people');
+      group.rows.filter(row => row.guardianName || (!row.child1Name && !row.child2Name)).forEach(row => { const item = el('div', undefined, 'family-roster-person'); item.append(textInput(row, 'guardianName', '保護者名'), textInput(row, 'guardianRoles', '役職・対応できること（任意）'), button('×', () => removePerson(row, 'guardian'), undefined, 'danger')); guardianList.append(item); });
+      guardians.append(guardianList, button('保護者を追加', () => { const row = { ...newRosterRow(), householdId: group.householdId, householdName: familyName.value }; rosterDraft.push(row); markRoster(); render(); })); card.append(guardians);
+      const children = el('section', undefined, 'family-roster-section'); children.append(el('h3', '子ども')); const childList = el('div', undefined, 'family-roster-people');
+      group.rows.forEach(row => { for (const slot of ['child1', 'child2']) if (row[`${slot}Name`]) { const item = el('div', undefined, 'family-roster-person'); item.append(textInput(row, `${slot}Name`, '子どもの氏名'), textInput(row, `${slot}Grade`, '学年', '学年'), button('×', () => removePerson(row, 'child', slot), undefined, 'danger')); childList.append(item); } });
+      children.append(childList, button('子どもを追加', () => { const row = group.rows.find(item => !item.child1Name || !item.child2Name) || { ...newRosterRow(), householdId: group.householdId, householdName: familyName.value }; const slot = !row.child1Name ? 'child1' : 'child2'; row[`${slot}Id`] ||= `M-${crypto.randomUUID()}`; if (!group.rows.includes(row)) rosterDraft.push(row); markRoster(); render(); })); card.append(children); list.append(card);
+    });
+    panel.append(note, add, list);
   }
   function renderTeachers(panel) {
     panel.append(el('p', '候補日入力に表示する先生です。スマホを使わない先生も、ここには登録し、可否は管理者が「予定・当番」タブで代理入力できます。', 'muted'));
-    panel.append(button('先生を追加', () => { const teacher = { '先生ID': `T-${crypto.randomUUID()}`, '氏名': '', '在籍': true }; data.masters.teachers.push(teacher); mark('teachers', rosterKeys.teachers(teacher)); render(); }, undefined, 'primary'));
+    panel.append(button('先生を追加', () => { const teacher = { '先生ID': `T-${crypto.randomUUID()}`, '氏名': '', '担当楽器': '', '在籍': true }; data.masters.teachers.push(teacher); mark('teachers', rosterKeys.teachers(teacher)); render(); }, undefined, 'primary'));
     data.masters.teachers.sort((a, b) => Number(bool(b['在籍'])) - Number(bool(a['在籍'])) || String(a['氏名']).localeCompare(String(b['氏名']))).forEach(teacher => {
       const card = el('article', undefined, 'card roster-card'); card.append(el('h2', teacher['氏名'] || '新しい先生'), el('span', bool(teacher['在籍']) ? '在籍中' : '在籍終了', 'badge'));
       card.append(field('氏名', teacher['氏名'], value => { teacher['氏名'] = value; mark('teachers', rosterKeys.teachers(teacher)); }));
+      card.append(field('担当楽器', teacher['担当楽器'], value => { teacher['担当楽器'] = value; mark('teachers', rosterKeys.teachers(teacher)); }));
       card.append(button(bool(teacher['在籍']) ? '削除' : '復帰', () => { const change = () => { teacher['在籍'] = !bool(teacher['在籍']); mark('teachers', rosterKeys.teachers(teacher)); render(); }; if (bool(teacher['在籍'])) confirmRemoval(teacher['氏名'] || 'この先生', change); else change(); }, undefined, bool(teacher['在籍']) ? 'danger' : undefined)); panel.append(card);
     });
   }

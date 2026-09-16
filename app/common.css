@@ -14,6 +14,21 @@
   font-size:16px;
   line-height:1.65;
 }
+
+.family-roster-list { display:grid; gap:14px; margin-top:14px; }
+.family-roster-card { padding:16px; }
+.family-roster-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; }
+.family-roster-head input { flex:1; min-width:0; font-size:1.15rem; font-weight:700; }
+.family-roster-section { margin-top:14px; }
+.family-roster-section h3 { margin-bottom:8px; }
+.family-roster-people { display:grid; gap:8px; }
+.family-roster-person { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:8px; align-items:center; }
+.family-roster-person input { width:100%; min-width:0; box-sizing:border-box; }
+.family-roster-person button { min-width:42px; padding-inline:10px; }
+@media (max-width:640px) {
+  .family-roster-person { grid-template-columns:minmax(0,1fr) auto; }
+  .family-roster-person input:first-child { grid-column:1 / -1; }
+}
 * {
   box-sizing:border-box;
 }

@@ -8,7 +8,7 @@ const BAND_DB_SCHEMA = {
   m_households: ['家庭ID', '家庭名', '緊急連絡先', '招待トークン', '在籍'],
   m_guardians: ['保護者ID', '家庭ID', '表示名', '対応可能な役割', '在籍'],
   m_members: ['子どもID', '家庭ID', '氏名', '基本担当楽器', '在籍', '学年'],
-  m_teachers: ['先生ID', '氏名', '招待トークン', '在籍'],
+  m_teachers: ['先生ID', '氏名', '担当楽器', '招待トークン', '在籍'],
   m_places: ['場所ID', '名称', '並び順', '有効'],
   months: ['月ID', '状態', '先生入力締切', '保護者入力締切'],
   sessions: ['予定ID', '月ID', '日付', '種別', '実施有無_am', 'staffing_am', '担当先生ID_am', '実施有無_pm', 'staffing_pm', '担当先生ID_pm', '集合', '開始', '終了', '解散', '場所ID', '確定状態', '備考'],
@@ -56,6 +56,7 @@ function setupBandDatabase() {
   migrateSessionsSchema();
   migratePlacesSchema();
   migrateMembersSchema();
+  migrateTeachersSchema();
   migrateTimelineSchema();
   seedDemoData_(spreadsheet);
   const result = {
@@ -104,10 +105,10 @@ function seedDemoData_(spreadsheet) {
   appendSeedRows_(spreadsheet.getSheetByName('m_guardians'), guardianRows);
   appendSeedRows_(spreadsheet.getSheetByName('m_members'), memberRows);
   appendSeedRows_(spreadsheet.getSheetByName('m_teachers'), [
-    ['T001', 'テスト先生A', createInviteToken_(), true],
-    ['T002', 'テスト先生B', createInviteToken_(), true],
-    ['T003', 'テスト先生C', createInviteToken_(), true],
-    ['T004', 'テスト先生D', createInviteToken_(), true]
+    ['T001', 'テスト先生A', '', createInviteToken_(), true],
+    ['T002', 'テスト先生B', '', createInviteToken_(), true],
+    ['T003', 'テスト先生C', '', createInviteToken_(), true],
+    ['T004', 'テスト先生D', '', createInviteToken_(), true]
   ]);
   appendSeedRows_(spreadsheet.getSheetByName('m_places'), [['P001', '平沼小学校', 1, true]]);
   appendSeedRows_(spreadsheet.getSheetByName('months'), [['2026-09', '下書き', '', '']]);
@@ -151,6 +152,18 @@ function migrateMembersSchema() {
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     if (headers.indexOf('学年') >= 0) return { columnsAdded: 0 };
     sheet.getRange(1, headers.length + 1, 1, 1).setValues([['学年']]);
+    return { columnsAdded: 1 };
+  });
+}
+
+/** 既存の先生名簿は残したまま、担当楽器列だけを末尾に追加する。 */
+function migrateTeachersSchema() {
+  return withWriteLock_(function() {
+    const sheet = getDatabase_().getSheetByName('m_teachers');
+    if (!sheet) throw new Error('m_teachers がありません。');
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (headers.indexOf('担当楽器') >= 0) return { columnsAdded: 0 };
+    sheet.getRange(1, headers.length + 1, 1, 1).setValues([['担当楽器']]);
     return { columnsAdded: 1 };
   });
 }

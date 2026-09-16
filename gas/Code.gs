@@ -439,7 +439,7 @@ function adminSaveTeachers_(records) {
     const rows = records.map(function(record) {
       const id = String(record['先生ID'] || '').trim(); const active = asBoolean_(record['在籍']); const name = String(record['氏名'] || '').trim();
       if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || (active && !name)) throw apiError_(API_ERROR.INVALID_REQUEST, '先生IDまたは氏名が不正です。');
-      return { '先生ID': id, '氏名': name, '招待トークン': existing[id]?.['招待トークン'] || createInviteToken_(), '在籍': active };
+      return { '先生ID': id, '氏名': name, '担当楽器': String(record['担当楽器'] || '').trim(), '招待トークン': existing[id]?.['招待トークン'] || createInviteToken_(), '在籍': active };
     });
     appendObjects_('m_teachers', rows); return { saved: rows.length };
   });
