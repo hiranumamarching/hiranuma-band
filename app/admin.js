@@ -144,7 +144,7 @@
   function renderPlan() {
     if (!requireMonth()) return;
     const panel = $('panel');
-    panel.append(el('p', '日付ごとに先生・出席・当番を確認できます。詳しい変更は各日の「詳細・修正」を開いてください。', 'muted'), placeMaster());
+    panel.append(el('p', '日付ごとに先生・出席・当番を確認できます。詳しい変更は各日の「詳細・修正」を開いてください。', 'muted'));
     for (const s of sessions()) panel.append(planCard(s));
     panel.append(button('日付を指定して予定追加', () => {
       const s = { '予定ID': `S${crypto.randomUUID()}`, '月ID': monthId, '日付': `${monthId}-01`, '種別': '通常練習', '実施有無_am': '実施', staffing_am: '未定', '担当先生ID_am': '', '実施有無_pm': '実施', staffing_pm: '未定', '担当先生ID_pm': '', ...practiceTimes({}), '場所ID': data.masters.places[0]?.['場所ID'] || '', '確定状態': '下書き', '備考': '' };
@@ -208,20 +208,29 @@
   function slots(s) { return s['種別'] === '本番' ? [['am', '終日']] : [['am', '午前'], ['pm', '午後']]; }
   function renderSchedule() {
     if (!requireMonth()) return;
-    const panel = $('panel'); panel.append(el('p', '午前・午後を別々に設定します。可否のボタンを押すと管理者による代理入力ができ、○の先生から各枠1名または2名を選べます。', 'muted'), placeMaster());
+    const panel = $('panel'); panel.append(el('p', '午前・午後を別々に設定します。可否のボタンを押すと管理者による代理入力ができ、○の先生から各枠1名または2名を選べます。', 'muted'));
     for (const s of sessions()) panel.append(sessionCard(s));
     panel.append(button('日付を指定して予定追加', () => {
       const s = { '予定ID': `S${crypto.randomUUID()}`, '月ID': monthId, '日付': `${monthId}-01`, '種別': '通常練習', '実施有無_am': '実施', staffing_am: '未定', '担当先生ID_am': '', '実施有無_pm': '実施', staffing_pm: '未定', '担当先生ID_pm': '', ...practiceTimes({}), '場所ID': data.masters.places[0]?.['場所ID'] || '', '確定状態': '下書き', '備考': '' };
       data.sessions.push(s); mark('sessions', s['予定ID']); render(); document.getElementById(s['予定ID']).scrollIntoView({ block: 'start' });
     }));
   }
-  function placeMaster() {
-    const card = el('section', undefined, 'card'); card.append(el('h2', '場所マスター'), el('p', '平沼小学校以外の場所が必要なときだけ追加します。', 'muted'));
-    card.append(pills(data.masters.places.map(place => [place['場所ID'], place['名称']]), '', () => {}, '登録済みの場所'));
-    const row = el('div', undefined, 'row'); const input = document.createElement('input'); input.type = 'text'; input.placeholder = '例：西公会堂'; input.maxLength = 80;
-    row.append(input, button('場所を追加', () => run(async () => {
-      const result = await api.request('admin_save_place', { name: input.value }); data.masters.places.push(result.place); render();
-    }, '場所を追加しました。'))); card.append(row); return card;
+  function placePicker(s, redraw) {
+    const wrap = el('section', undefined, 'place-choice');
+    wrap.append(el('h3', '場所'));
+    const places = data.masters.places
+      .filter(place => bool(place['有効']) || place['有効'] === undefined)
+      .sort((a, b) => (a['場所ID'] === 'P001' ? -1 : b['場所ID'] === 'P001' ? 1 : (Number(a['並び順']) || 0) - (Number(b['並び順']) || 0)));
+    wrap.append(pills(places.map(place => [place['場所ID'], place['名称']]), s['場所ID'] || '', value => {
+      s['場所ID'] = value; mark('sessions', s['予定ID']); redraw();
+    }, '場所'));
+    const input = document.createElement('input'); input.type = 'text'; input.placeholder = '追加する場所'; input.maxLength = 80;
+    const add = button('＋他の場所を追加', () => run(async () => {
+      const result = await api.request('admin_save_place', { name: input.value });
+      data.masters.places.push(result.place); s['場所ID'] = result.place['場所ID']; mark('sessions', s['予定ID']); render();
+    }, '場所を追加しました。'));
+    const row = el('div', undefined, 'row'); row.append(input, add); wrap.append(row);
+    return wrap;
   }
   function sessionCard(s) {
     const card = el('article', undefined, 'card'); card.id = s['予定ID'];
@@ -240,7 +249,7 @@
       set('種別', v, true);
     }, '予定の種別'));
     const times = el('div', undefined, 'grid'); for (const key of ['集合', '開始', '終了', '解散']) times.append(field(key, s[key], v => set(key, v), 'time')); card.append(times);
-    card.append(picker('場所', data.masters.places.map(p => [p['場所ID'], p['名称']]), s['場所ID'], v => set('場所ID', v, true)));
+    card.append(placePicker(s, () => card.replaceWith(sessionCard(s))));
     card.append(availabilityTable(s, () => card.replaceWith(sessionCard(s))));
     for (const [slot, label] of slots(s)) {
       const block = el('section', undefined, 'slot'); block.append(el('h3', `${label}の指導体制`));
