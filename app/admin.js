@@ -621,7 +621,8 @@
     ];
     for (const [collection, action, key, transform] of actions) {
       if (!dirty[collection].size) continue;
-      const records = transform(data[collection].filter(r => dirty[collection].has(key(r))));
+      const source = collection === 'teachers' ? data.masters.teachers : data[collection];
+      const records = transform(source.filter(r => dirty[collection].has(key(r))));
       if (records.length) await api.request(action, { records }); dirty[collection].clear();
     }
     await load();
