@@ -464,7 +464,22 @@
   function newRosterRow() { return { id: crypto.randomUUID(), householdId: `H-${crypto.randomUUID()}`, householdName: '', guardianId: `G-${crypto.randomUUID()}`, guardianName: '', guardianRoles: '', child1Id: '', child1Name: '', child1Grade: '', child2Id: '', child2Name: '', child2Grade: '' }; }
   function renderFamilies(panel) {
     const note = el('p', '家庭名は1回だけ表示し、その下に保護者と子どもを分けて入力します。', 'muted');
-    const add = button('家庭を追加', () => { rosterDraft.push(newRosterRow()); markRoster(); render(); }, undefined, 'primary');
+    const editor = el('section', undefined, 'card family-add-editor'); editor.hidden = true;
+    editor.append(el('h2', '新しい家庭'));
+    editor.append(el('p', '家庭名だけでも追加できます。保護者・子どもは後から追加できます。', 'muted'));
+    const addField = (label, placeholder, type = 'text') => { const wrap = el('label', label); const input = document.createElement('input'); input.type = type; input.placeholder = placeholder; wrap.append(input); return [wrap, input]; };
+    const householdField = addField('家庭名', '例：戸塚'); const guardianField = addField('保護者名（任意）', '例：戸塚（母）');
+    const child1Field = addField('子ども1（任意）', '子どもの氏名'); const grade1Field = addField('学年', '例：3年');
+    const child2Field = addField('子ども2（任意）', '子どもの氏名'); const grade2Field = addField('学年', '例：1年');
+    const fields = el('div', undefined, 'grid'); fields.append(householdField[0], guardianField[0], child1Field[0], grade1Field[0], child2Field[0], grade2Field[0]); editor.append(fields);
+    const error = el('p', undefined, 'error'); error.hidden = true; editor.append(error);
+    const editorActions = el('div', undefined, 'row'); const cancel = button('キャンセル', () => { editor.hidden = true; add.textContent = '家庭を追加'; }); const submit = button('家庭を追加', () => {
+      const householdName = householdField[1].value.trim(); if (!householdName) { error.textContent = '家庭名を入力してください。'; error.hidden = false; householdField[1].focus(); return; }
+      const row = newRosterRow(); row.householdName = householdName; row.guardianName = guardianField[1].value.trim(); row.child1Name = child1Field[1].value.trim(); row.child1Grade = grade1Field[1].value.trim(); row.child2Name = child2Field[1].value.trim(); row.child2Grade = grade2Field[1].value.trim();
+      if (row.child1Name) row.child1Id = `M-${crypto.randomUUID()}`; if (row.child2Name) row.child2Id = `M-${crypto.randomUUID()}`;
+      rosterDraft.push(row); markRoster(); render();
+    }, undefined, 'primary'); editorActions.append(cancel, submit); editor.append(editorActions);
+    const add = button('家庭を追加', () => { editor.hidden = !editor.hidden; add.textContent = editor.hidden ? '家庭を追加' : '追加を閉じる'; if (!editor.hidden) householdField[1].focus(); }, undefined, 'primary');
     const groups = [...new Map(rosterDraft.map(row => [row.householdId, { householdId: row.householdId, householdName: row.householdName || '', rows: [] }])).values()];
     rosterDraft.forEach(row => groups.find(group => group.householdId === row.householdId)?.rows.push(row));
     const list = el('div', undefined, 'family-roster-list');
@@ -486,7 +501,7 @@
       group.rows.forEach(row => { for (const slot of ['child1', 'child2']) if (row[`${slot}Name`] || row[`${slot}Id`]) { const item = el('div', undefined, 'family-roster-person'); item.append(textInput(row, `${slot}Name`, '子どもの氏名'), textInput(row, `${slot}Grade`, '学年', '学年'), button('×', () => removePerson(row, 'child', slot), undefined, 'danger')); childList.append(item); } });
       children.append(childList, button('子どもを追加', () => { const row = group.rows.find(item => !item.child1Name || !item.child2Name) || { ...newRosterRow(), householdId: group.householdId, householdName: familyName.value }; const slot = !row.child1Name ? 'child1' : 'child2'; row[`${slot}Id`] ||= `M-${crypto.randomUUID()}`; if (!group.rows.includes(row)) rosterDraft.push(row); markRoster(); render(); })); card.append(children); list.append(card);
     });
-    panel.append(note, add, list);
+    panel.append(note, add, editor, list);
   }
   function renderTeachers(panel) {
     panel.append(el('p', '候補日入力に表示する先生です。スマホを使わない先生も、ここには登録し、可否は管理者が「予定・当番」タブで代理入力できます。', 'muted'));
