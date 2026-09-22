@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="common.css">
   <script src="api.js" defer></script>
   <script src="shared.js" defer></script>
-  <script src="admin.js?v=20260916-4" defer></script>
+  <script src="admin.js?v=20260922-1" defer></script>
 </head>
 <body>
   <header><div class="shell"><p class="eyebrow">平沼マーチングバンド · 管理者</p><h1>毎月の運営</h1></div></header>
@@ -25,7 +25,8 @@
     <fieldset id="workspace" hidden>
       <legend class="sr-only">月間運営</legend>
       <div class="toolbar"><strong id="month-title"></strong><span id="save-state"></span><button id="save" class="primary" type="button">変更を保存</button><button id="reload" type="button">再読み込み</button><button id="forget" type="button">この端末の認証を解除</button></div>
-      <nav id="tabs" aria-label="管理画面" class="tabs"></nav>
+      <nav id="tabs" aria-label="主な作業" class="tabs admin-main-tabs"></nav>
+      <nav id="utility-tabs" aria-label="補助メニュー" class="utility-tabs"></nav>
       <section id="panel" aria-live="off"></section>
     </fieldset>
   </main>

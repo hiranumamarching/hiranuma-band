@@ -4,7 +4,8 @@
   const $ = id => document.getElementById(id);
   const bool = v => v === true || v === 'true' || v === 1 || v === '1' || v === '○';
   const roles = ['当番'];
-  const tabs = [['month', '日程作成'], ['plan', '予定・当番'], ['event', '本番'], ['publish', '公開確認'], ['roster', '名簿'], ['references', 'ガイド・本番候補']];
+  const tabs = [['month', '日程作成'], ['plan', '予定・当番'], ['event', '本番'], ['roster', '名簿']];
+  const utilityTabs = [['publish', '公開状況'], ['references', 'ガイド']];
   const dirty = { sessions: new Set(), selfPractice: new Set(), dutyAssignments: new Set(), teacherAvailability: new Set(), teachers: new Set(), events: new Set(), timelineItems: new Set(), guideItems: new Set(), annualEvents: new Set() };
   const today = new Date();
   let monthId = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -100,6 +101,9 @@
   function render() {
     $('month-title').textContent = `${monthId.replace('-', '年')}月 · ${currentMonth()?.['状態'] || '未作成'}`;
     $('tabs').replaceChildren(...tabs.map(([id, label]) => {
+      const b = button(label, () => { tab = id; render(); }, tab === id); b.setAttribute('aria-controls', 'panel'); return b;
+    }));
+    $('utility-tabs').replaceChildren(...utilityTabs.map(([id, label]) => {
       const b = button(label, () => { tab = id; render(); }, tab === id); b.setAttribute('aria-controls', 'panel'); return b;
     }));
     $('panel').replaceChildren();
@@ -522,12 +526,16 @@
   function renderEvent() {
     if (!requireMonth()) return;
     const panel = $('panel'); const candidates = eventSessions();
-    panel.append(el('p', '本番の基本情報と、保護者へ共有する当日の流れを作成します。ステージ配置・器材は次の画面で追加します。', 'muted'));
-    if (!candidates.length) { panel.append(el('section', '「予定・当番」タブで予定の種別を「本番」にすると、ここで編集できます。', 'card warning')); return; }
-    let selectedId = candidates[0]['予定ID'];
-    const selector = el('section', undefined, 'card'); selector.append(el('h2', '編集する本番'));
-    const body = el('div'); const draw = () => { body.replaceChildren(eventEditor(candidates.find(s => s['予定ID'] === selectedId))); };
-    selector.append(pills(candidates.map(s => [s['予定ID'], `${s['日付']} ${eventFor(s)['本番名'] || '本番名未入力'}`]), selectedId, id => { selectedId = id; draw(); }, '編集する本番'), body); panel.append(selector); draw();
+    panel.append(el('p', '本番の基本情報と、保護者へ共有する当日の流れを作成します。年間の本番候補もこの画面で管理できます。', 'muted'));
+    if (!candidates.length) panel.append(el('section', '「予定・当番」タブで予定の種別を「本番」にすると、ここで編集できます。', 'card warning'));
+    else {
+      let selectedId = candidates[0]['予定ID'];
+      const selector = el('section', undefined, 'card'); selector.append(el('h2', '編集する本番'));
+      const body = el('div'); const draw = () => { body.replaceChildren(eventEditor(candidates.find(s => s['予定ID'] === selectedId))); };
+      selector.append(pills(candidates.map(s => [s['予定ID'], `${s['日付']} ${eventFor(s)['本番名'] || '本番名未入力'}`]), selectedId, id => { selectedId = id; draw(); }, '編集する本番'), body); panel.append(selector); draw();
+    }
+    const references = data.references || {};
+    panel.append(references.status === 'ready' ? referenceEventEditor(references.annualEvents || []) : referenceImportCard());
   }
   function eventEditor(session) {
     const wrap = el('div'); const event = eventFor(session); const setEvent = (key, value) => { event[key] = value; mark('events', eventKey(event)); };
@@ -557,15 +565,15 @@
   }
   function renderReferences() {
     const panel = $('panel'); const references = data.references || {};
-    const intro = el('section', undefined, 'card'); intro.append(el('h2', '当番ガイド・年間本番候補'), el('p', 'ここで保存した内容を保護者画面に表示します。元のスプレッドシートは初回取り込み時以外、変更しません。', 'muted')); panel.append(intro);
-    if (references.status !== 'ready') {
-      const card = el('section', undefined, 'card'); card.append(el('h2', '元の資料を取り込む'));
-      card.append(el('p', '初回だけ、当番ガイドと年間本番一覧の内容をアプリ用DBへコピーします。取り込み後はこの画面で編集でき、元のシートはそのまま保管されます。'));
-      card.append(button('元のスプレッドシートから取り込む', () => run(async () => { await api.request('admin_import_references'); await load(); }, '元の資料を取り込みました。内容を確認・編集できます。'), undefined, 'primary'));
-      panel.append(card); return;
-    }
-    const guide = references.guide?.items || []; const events = references.annualEvents || [];
-    panel.append(referenceGuideEditor(guide), referenceEventEditor(events), referenceBackup());
+    const intro = el('section', undefined, 'card'); intro.append(el('h2', '当番ガイド'), el('p', '当番の手順や注意事項を編集します。元のスプレッドシートは初回取り込み時以外、変更しません。', 'muted')); panel.append(intro);
+    if (references.status !== 'ready') { panel.append(referenceImportCard()); return; }
+    panel.append(referenceGuideEditor(references.guide?.items || []), referenceBackup());
+  }
+  function referenceImportCard() {
+    const card = el('section', undefined, 'card'); card.append(el('h2', '元の資料を取り込む'));
+    card.append(el('p', '初回だけ、当番ガイドと年間本番一覧の内容をアプリ用DBへコピーします。取り込み後はガイド・本番画面で編集でき、元のシートはそのまま保管されます。'));
+    card.append(button('元のスプレッドシートから取り込む', () => run(async () => { await api.request('admin_import_references'); await load(); }, '元の資料を取り込みました。内容を確認・編集できます。'), undefined, 'primary'));
+    return card;
   }
   function referenceGuideEditor(items) {
     const card = el('section', undefined, 'card'); card.append(el('h2', '当番ガイド'));
@@ -586,7 +594,7 @@
     return card;
   }
   function referenceEventEditor(events) {
-    const card = el('section', undefined, 'card'); card.append(el('h2', '年間本番候補'), el('p', '連絡先は管理者だけに保存・表示されます。実施が決まった本番を当月の正式予定にする機能は、次の本番管理画面で追加します。', 'muted'));
+    const card = el('section', undefined, 'card'); card.append(el('h2', '年間本番候補'), el('p', '連絡先は管理者だけに保存・表示されます。実施が決まった本番は「日程作成」で当月の予定として追加します。', 'muted'));
     const list = el('div');
     const draw = () => {
       list.replaceChildren();
