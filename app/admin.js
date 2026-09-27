@@ -648,9 +648,8 @@
       const records = transform(source.filter(r => dirty[collection].has(key(r))));
       if (records.length) await api.request(action, { records }); dirty[collection].clear();
     }
-    await load();
-    // 保存した変更をそのまま共有画面へ反映する。公開条件に不足がある場合は、
-    // 保存自体は完了したうえで公開処理のエラーを呼び出し元へ返す。
+    // 保存済みの最新データで公開してから、最後に一度だけ読み直す。
+    // 公開条件に不足がある場合も、保存済みの内容はそのまま残る。
     await api.request('admin_publish_month', { monthId });
     await load();
   }
