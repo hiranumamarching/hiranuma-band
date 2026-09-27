@@ -9,32 +9,37 @@
   <title>先生用・候補日入力｜平沼マーチングバンド</title>
   <link rel="stylesheet" href="common.css">
   <style>
-    .teacher-card { border-left:4px solid var(--navy); padding:14px 16px; margin:10px 0; }
-    .teacher-card h2 { margin-bottom:2px; }
-    .teacher-card p:last-child { margin-bottom:0; }
-    .session-meta { color:var(--muted); margin:0; font-size:.9rem; white-space:nowrap; }
-    .teacher-session { padding:12px 16px; margin:10px 0; }
-    .teacher-session h2 { margin:0 0 2px; font-size:1.1rem; }
-    .slot-grid { display:flex; gap:8px; margin-top:8px; align-items:stretch; }
-    .slot { margin-top:0; }
-    .teacher-slot { display:grid; grid-template-columns:3em minmax(0,1fr); flex:1 1 0; min-width:0; gap:8px; align-items:center; padding:7px 8px; border:1px solid var(--line); border-radius:9px; }
-    .teacher-slot h3 { margin:0; font-size:.95rem; }
-    .teacher-slot .pills { flex-wrap:nowrap; gap:4px; margin:0; }
-    .teacher-slot .pills button { flex:1; min-height:36px; padding:4px 6px; font-size:.86rem; }
-    .not-needed { background:#f1f3f7; color:var(--muted); border-radius:10px; padding:12px; }
-    .not-needed strong { display:block; color:var(--ink); }
-    .month-pills button { flex:1 1 100px; }
-    .save-bar { position:sticky; bottom:0; background:rgba(246,247,251,.95); padding:12px 0 2px; }
-    .save-bar button { width:100%; }
-    @media(max-width:520px) {
-      .teacher-session { padding:10px 12px; }
-      .teacher-session h2 { font-size:1.02rem; }
-      .session-meta { font-size:.74rem; letter-spacing:-.02em; }
-      .slot-grid { gap:5px; }
-      .teacher-slot { grid-template-columns:2.5em minmax(0,1fr); }
-      .teacher-slot .pills { gap:2px; }
-      .teacher-slot .pills button { min-height:34px; padding:3px 2px; font-size:.7rem; }
-    }
+    header { padding:9px 0; }
+    header h1 { margin:0; font-size:1.2rem; }
+    main.shell { padding:5px 10px 72px; }
+    #message { margin:3px 2px; font-size:.75rem; line-height:1.25; }
+    .teacher-card { padding:8px 10px; margin:6px 0; }
+    .teacher-identity { display:flex; align-items:baseline; gap:8px; }
+    .teacher-identity p, .teacher-identity h2 { margin:0; }
+    .teacher-identity p { font-size:.75rem; }
+    .teacher-identity h2 { font-size:1rem; }
+    .teacher-card > p { margin:3px 0 0; font-size:.72rem; line-height:1.35; }
+    .teacher-month { display:flex; align-items:center; gap:8px; padding:7px 9px; margin:6px 0; }
+    .teacher-month h2 { flex:0 0 auto; margin:0; font-size:.9rem; }
+    .month-pills { display:flex; flex:1; flex-wrap:nowrap; gap:4px; min-width:0; overflow-x:auto; margin:0; }
+    .month-pills button { flex:1 0 auto; min-height:34px; padding:4px 8px; font-size:.78rem; }
+    .teacher-grid-card { padding:3px 6px; margin:6px 0 3px; }
+    .teacher-grid { width:100%; table-layout:fixed; font-size:.8rem; }
+    .teacher-grid th, .teacher-grid td { padding:4px 3px; vertical-align:middle; }
+    .teacher-grid thead th { background:#f1f3f8; color:var(--muted); text-align:center; font-size:.75rem; }
+    .teacher-grid thead th:first-child { width:27%; text-align:left; }
+    .teacher-day-row { height:52px; }
+    .teacher-day-date { font-size:.75rem; white-space:nowrap; }
+    .teacher-day-date span, .teacher-day-date small { display:block; overflow:hidden; text-overflow:ellipsis; }
+    .teacher-day-date small { color:var(--muted); font-size:.62rem; font-weight:400; }
+    .teacher-slot-cell { text-align:center; }
+    .answer-buttons { display:flex; justify-content:center; gap:4px; }
+    .answer-choice { width:40px; min-height:42px; padding:2px; font-size:1rem; font-weight:700; }
+    .cell-state { display:block; color:var(--muted); text-align:center; font-size:.72rem; white-space:nowrap; }
+    .merged-state { background:#f7f8fb; }
+    .save-bar { position:fixed; z-index:5; left:0; right:0; bottom:0; display:flex; align-items:center; gap:10px; padding:6px 12px max(6px,env(safe-area-inset-bottom)); border-top:1px solid var(--line); background:rgba(246,247,251,.97); }
+    .save-bar #save-state { flex:1; margin:0; font-size:.75rem; }
+    .save-bar button { flex:0 0 auto; min-height:40px; padding:5px 14px; }
   </style>
   <script src="api.js" defer></script>
   <script src="teacher.js" defer></script>
@@ -52,16 +57,15 @@
     <fieldset id="workspace" hidden>
       <legend class="sr-only">先生用候補日入力</legend>
       <section class="card teacher-card">
-        <p class="muted">入力する先生</p>
-        <h2 id="teacher-name"></h2>
-        <p class="muted">○（参加可）・×（不可）を選んでください。同じボタンをもう一度押すと未入力に戻ります。送信後も管理者が予定を確定するまでは修正できます。</p>
+        <div class="teacher-identity"><p class="muted">入力する先生</p><h2 id="teacher-name"></h2></div>
+        <p class="muted">○／×を選択。選択中をもう一度押すと未入力に戻ります。</p>
       </section>
       <section class="card teacher-month">
         <h2>対象月</h2>
         <div id="months" class="pills month-pills" role="group" aria-label="対象月"></div>
       </section>
       <section id="sessions" aria-live="polite"></section>
-      <div class="save-bar"><p id="save-state" class="muted">変更はありません。</p><button id="save" type="button" class="primary">入力内容を送信する</button></div>
+      <div class="save-bar"><p id="save-state" class="muted">変更はありません。</p><button id="save" type="button" class="primary">送信</button></div>
     </fieldset>
   </main>
 </body>

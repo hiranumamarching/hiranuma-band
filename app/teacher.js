@@ -3,7 +3,6 @@
   const api = BandAPI.create('t');
   const $ = id => document.getElementById(id);
   const state = { data: undefined, monthId: '', draft: new Map(), busy: false };
-  const slots = session => session['種別'] === '本番' ? [['終日', '終日']] : [['am', '午前'], ['pm', '午後']];
   const apiSlot = slot => ({ am: '午前', pm: '午後', 終日: '終日' }[slot] || slot);
   const sessionDate = session => new Date(`${session['日付']}T00:00:00+09:00`);
   const monthKey = value => String(value || '').trim().slice(0, 7);
@@ -24,46 +23,58 @@
     for (const month of months()) wrap.append(button(monthLabel(month['月ID']), () => { state.monthId = monthKey(month['月ID']); render(); }, monthKey(state.monthId) === monthKey(month['月ID'])));
     if (!months().length) wrap.append(el('p', '対象月はまだありません。', 'muted'));
   }
-  function slotCard(session, slot, label) {
-    const card = el('section', undefined, 'slot teacher-slot');
-    card.style.flex = '1 1 0';
-    card.style.minWidth = '0';
-    const heading = el('h3', label); const draft = currentValue(session['予定ID'], slot); let value = draft === undefined ? existingValue(session['予定ID'], slot) : draft;
-    const options = [['○', '○ 参加可'], ['×', '× 不可']];
-    const choices = el('div', undefined, 'pills'); choices.setAttribute('role', 'group'); choices.setAttribute('aria-label', `${session['日付']} ${label}の可否`);
-    options.forEach(([id, text]) => {
-      const node = button(text, () => {
-        const nextValue = value === id ? '' : id;
-        value = nextValue;
-        setValue(session['予定ID'], slot, nextValue);
-        choices.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', String(item.dataset.value === nextValue && nextValue !== '')));
-      }, value === id);
-      node.dataset.value = id; choices.append(node);
-    });
-    card.append(heading, choices); return card;
+  function slotCell(session, slot, label) {
+    const cell = el('td', undefined, 'teacher-slot-cell');
+    if (!isPracticeSlot(session, slot)) { cell.append(el('span', '練習なし', 'cell-state')); return cell; }
+    if (!needsTeacherInput(session, slot)) {
+      cell.append(el('span', session['種別'] === '本番' ? '本番' : '自主練', 'cell-state'));
+      return cell;
+    }
+    const draft = currentValue(session['予定ID'], slot);
+    let value = draft === undefined ? existingValue(session['予定ID'], slot) : draft;
+    const choices = el('div', undefined, 'answer-buttons');
+    choices.setAttribute('role', 'group');
+    choices.setAttribute('aria-label', `${session['日付']} ${label}の可否`);
+    for (const [id, symbol, accessibleName] of [['○', '○', '参加可'], ['×', '×', '不可']]) {
+      const node = button(symbol, () => {
+        value = value === id ? '' : id;
+        setValue(session['予定ID'], slot, value);
+        choices.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', String(item.dataset.value === value && value !== '')));
+      }, value === id, 'answer-choice');
+      node.dataset.value = id;
+      node.setAttribute('aria-label', `${label} ${accessibleName}`);
+      choices.append(node);
+    }
+    cell.append(choices);
+    return cell;
   }
   function renderSession(session) {
-    const card = el('article', undefined, 'card teacher-session');
+    const row = el('tr', undefined, 'teacher-day-row');
     const date = sessionDate(session); const day = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
-    card.append(el('h2', `${session['日付'].slice(5).replace('-', '月')}日（${day}） · ${session['種別']}`));
-    const place = session['場所名'] || (state.data.places || []).find(row => row['場所ID'] === session['場所ID'])?.['名称'] || session['場所ID'] || '場所未設定';
-    card.append(el('p', `${place} · 集合 ${session['集合']} · ${session['開始']}–${session['終了']} · 解散 ${session['解散']}`, 'session-meta'));
-    const grid = el('div', undefined, 'slot-grid');
-    grid.style.display = 'flex';
-    grid.style.flexWrap = 'nowrap';
-    grid.style.gap = '8px';
-    for (const [slot, label] of slots(session)) {
-      if (!isPracticeSlot(session, slot)) { const empty = el('div', undefined, 'not-needed'); empty.append(el('strong', `${label} · 練習なし`), el('span', 'この枠は実施しないため、先生の入力は不要です。')); grid.append(empty); continue; }
-      if (!needsTeacherInput(session, slot)) { const self = el('div', undefined, 'not-needed'); const isEvent = session['種別'] === '本番'; self.append(el('strong', `${label} · ${isEvent ? '本番' : '自主練'}`), el('span', isEvent ? '本番は管理者が出席・担当を確定するため、先生の入力は不要です。' : '先生なしで実施する枠のため、先生の入力は不要です。')); grid.append(self); continue; }
-      grid.append(slotCard(session, slot, label));
+    const dateCell = el('th', undefined, 'teacher-day-date'); dateCell.scope = 'row';
+    dateCell.append(el('span', `${session['日付'].slice(5).replace('-', '/')}（${day}）`));
+    const place = session['場所名'] || (state.data.places || []).find(item => item['場所ID'] === session['場所ID'])?.['名称'] || '';
+    const info = [place, session['開始'] && session['終了'] ? `${session['開始']}–${session['終了']}` : ''].filter(Boolean).join(' · ');
+    if (info) dateCell.append(el('small', info));
+    row.append(dateCell);
+    if (session['種別'] === '本番' || session['種別'] === '自主練') {
+      const stateCell = el('td', session['種別'], 'cell-state merged-state'); stateCell.colSpan = 2; row.append(stateCell);
+      return row;
     }
-    if (grid.children.length) card.append(grid); return card;
+    row.append(slotCell(session, 'am', '午前'), slotCell(session, 'pm', '午後'));
+    return row;
   }
   function render() {
     renderMonths(); const wrap = $('sessions'); wrap.replaceChildren();
     const sessions = monthSessions();
     if (!sessions.length) { wrap.append(el('p', 'この月の候補日はありません。', 'muted')); updateSaveState(); return; }
-    sessions.forEach(session => wrap.append(renderSession(session)));
+    const card = el('section', undefined, 'card teacher-grid-card');
+    const table = el('table', undefined, 'teacher-grid');
+    const head = el('thead'); const heading = el('tr');
+    for (const label of ['日付', '午前', '午後']) heading.append(el('th', label));
+    head.append(heading);
+    const body = el('tbody'); sessions.forEach(session => body.append(renderSession(session)));
+    table.append(head, body); card.append(table); wrap.append(card);
     updateSaveState();
   }
   function updateSaveState() { const count = state.draft.size; $('save-state').textContent = count ? `未送信：${count}枠` : '変更はありません。'; $('save').disabled = state.busy || !count; }
