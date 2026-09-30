@@ -71,7 +71,13 @@
     const card = el('section', undefined, 'card teacher-grid-card');
     const table = el('table', undefined, 'teacher-grid');
     const head = el('thead'); const heading = el('tr');
-    for (const label of ['日付', '午前', '午後']) heading.append(el('th', label));
+    const columns = [['日付', ''], ['午前', '10:00–12:00'], ['午後', '13:00–15:00']];
+    for (const [label, time] of columns) {
+      const th = el('th');
+      th.append(el('span', label));
+      if (time) th.append(el('small', time));
+      heading.append(th);
+    }
     head.append(heading);
     const body = el('tbody'); sessions.forEach(session => body.append(renderSession(session)));
     table.append(head, body); card.append(table); wrap.append(card);

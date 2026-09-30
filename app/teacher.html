@@ -27,14 +27,16 @@
     .teacher-grid { width:100%; table-layout:fixed; font-size:.8rem; }
     .teacher-grid th, .teacher-grid td { padding:4px 3px; vertical-align:middle; }
     .teacher-grid thead th { background:#f1f3f8; color:var(--muted); text-align:center; font-size:.75rem; }
+    .teacher-grid thead th span { display:block; line-height:1.2; }
+    .teacher-grid thead th small { display:block; margin-top:2px; font-size:.7rem; font-weight:500; white-space:nowrap; }
     .teacher-grid thead th:first-child { width:27%; text-align:left; }
     .teacher-day-row { height:52px; }
     .teacher-day-date { font-size:.75rem; white-space:nowrap; }
     .teacher-day-date span, .teacher-day-date small { display:block; overflow:hidden; text-overflow:ellipsis; }
     .teacher-day-date small { color:var(--muted); font-size:.62rem; font-weight:400; }
     .teacher-slot-cell { text-align:center; }
-    .answer-buttons { display:flex; justify-content:center; gap:4px; }
-    .answer-choice { width:40px; min-height:42px; padding:2px; font-size:1rem; font-weight:700; }
+    .answer-buttons { display:grid; grid-template-columns:repeat(2, 40px); justify-content:center; gap:4px; }
+    .answer-choice { width:40px; height:40px; min-height:40px; padding:0; border-radius:50%; font-size:1rem; font-weight:700; }
     .cell-state { display:block; color:var(--muted); text-align:center; font-size:.72rem; white-space:nowrap; }
     .merged-state { background:#f7f8fb; }
     .save-bar { position:fixed; z-index:5; left:0; right:0; bottom:0; display:flex; align-items:center; gap:10px; padding:6px 12px max(6px,env(safe-area-inset-bottom)); border-top:1px solid var(--line); background:rgba(246,247,251,.97); }
