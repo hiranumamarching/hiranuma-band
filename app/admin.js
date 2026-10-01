@@ -12,6 +12,7 @@
   let tab = 'month', rosterTab = 'families', data, busy = false, monthDirty = false, rosterDirty = false, deadlineDraft, rosterDraft = [];
   const dutyKey = r => [r['予定ID'], r['役割'], r['区分']].join('|');
   const availabilityKey = r => [r['先生ID'], r['予定ID'], r['枠']].join('|');
+  const proxyEditing = new Set();
   const guideKey = r => r.id;
   const annualEventKey = r => r.id;
   const eventKey = r => r['予定ID'];
@@ -224,7 +225,7 @@
   function slots(s) { return s['種別'] === '本番' ? [['am', '終日']] : [['am', '午前'], ['pm', '午後']]; }
   function renderSchedule() {
     if (!requireMonth()) return;
-    const panel = $('panel'); panel.append(el('p', '午前・午後を別々に設定します。可否のボタンを押すと管理者による代理入力ができ、○の先生から各枠1名または2名を選べます。', 'muted'));
+    const panel = $('panel'); panel.append(el('p', '午前・午後を別々に設定します。「代理入力」で先生の可否を編集でき、○の先生から各枠1名または2名を選べます。', 'muted'));
     for (const s of sessions()) panel.append(sessionCard(s));
     panel.append(button('日付を指定して予定追加', () => {
       const s = { '予定ID': `S${crypto.randomUUID()}`, '月ID': monthId, '日付': `${monthId}-01`, '種別': '通常練習', '実施有無_am': '実施', staffing_am: '未定', '担当先生ID_am': '', '実施有無_pm': '実施', staffing_pm: '未定', '担当先生ID_pm': '', ...practiceTimes({}), '場所ID': data.masters.places[0]?.['場所ID'] || '', '確定状態': '下書き', '備考': '' };
@@ -316,7 +317,14 @@
   }
   function availabilityTable(s, redraw) {
     const wrap = el('div', undefined, 'table-wrap'); const table = el('table', undefined, 'availability');
-    const caption = el('caption', '先生の可否（押して代理入力）'); table.append(caption);
+    const editing = proxyEditing.has(s['予定ID']);
+    const caption = el('caption', '先生の可否');
+    caption.append(button(editing ? '完了' : '代理入力', () => {
+      if (editing) proxyEditing.delete(s['予定ID']);
+      else proxyEditing.add(s['予定ID']);
+      redraw();
+    }));
+    table.append(caption);
     const availableSlots = slots(s).filter(([slot]) => (s[`実施有無_${slot}`] || '実施') !== 'なし');
     if (!availableSlots.length) return el('p', '実施する枠がないため、先生の可否はありません。', 'muted');
     const head = el('tr'); head.append(el('th', '先生')); availableSlots.forEach(([, label]) => head.append(el('th', label))); const thead = el('thead'); thead.append(head); table.append(thead);
@@ -325,7 +333,9 @@
       const tr = el('tr'); tr.append(el('th', teacher['氏名']));
       for (const [, label] of availableSlots) {
         let row = data.teacherAvailability.find(r => r['予定ID'] === s['予定ID'] && r['先生ID'] === teacher['先生ID'] && r['枠'] === label);
-        const td = el('td'); const b = button(row?.['可否'] || '未入力', () => {
+        const td = el('td');
+        if (!editing) { td.append(el('span', row?.['可否'] || '未入力')); tr.append(td); continue; }
+        const b = button(row?.['可否'] || '未入力', () => {
           const options = ['', '○', '×']; const value = options[(options.indexOf(row?.['可否'] || '') + 1) % options.length];
           if (!row) { row = { '予定ID': s['予定ID'], '先生ID': teacher['先生ID'], '枠': label }; data.teacherAvailability.push(row); }
           row['可否'] = value; mark('teacherAvailability', availabilityKey(row)); redraw();
