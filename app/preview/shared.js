@@ -71,7 +71,7 @@ window.BandShared = (() => {
       const list = el('ol', undefined, 'day-schedule-list');
       dayItems.forEach(item => {
         const row = el('li', undefined, 'day-schedule-item');
-        row.append(el('strong', `時刻：${shown(item['時刻'])}`), el('p', shown(item['内容'])), el('p', `場所：${placeName(item['場所ID'])}`));
+        row.append(el('strong', `時刻：${shown(item['時刻'])}`), el('p', shown(item['内容'])), el('p', `場所：${shown(timelinePlace(item, places))}`));
         list.append(row);
       });
       group.append(list); section.append(group);
@@ -130,6 +130,12 @@ window.BandShared = (() => {
     svg.append(text(200, 274, '客席側 ↓')); const legend = el('ul', undefined, 'layout-legend'); (layout.items || []).filter(item => mode !== 'combined' || !pairedPerson(layout,item)).forEach(item => legend.append(el('li', `${item.label}${mode === 'combined' && item.kind === 'person' ? `／${pairedInstrument(layout,item.id)?.label || '担当楽器未設定'}` : ''}`))); section.append(svg, legend, el('p', '相対位置の図です。実寸や必要な間隔は会場で確認してください。', 'muted')); if (layout.notes) section.append(el('p', layout.notes, 'note')); container.append(section); return section;
   }
   const progressPositions = new Map();
+  function timelinePlace(item, places = []) {
+    if (Object.prototype.hasOwnProperty.call(item, '場所自由入力')) return item['場所自由入力'] || '';
+    const stage = readStage(item);
+    if (Object.prototype.hasOwnProperty.call(stage, 'placeText')) return stage.placeText || '';
+    return places.find(place => place['場所ID'] === item['場所ID'])?.['名称'] || '';
+  }
   function readStage(item) { try { return Object.assign({speakers:[], microphones:[], prepare:[], layoutId:'', changes:''}, JSON.parse(item.stageJSON || '{}')); } catch (_) { return {speakers:[],microphones:[],prepare:[],layoutId:'',changes:''}; } }
   function stageOrder(a,b) { return (a.day === '前日' ? 0 : 1) - (b.day === '前日' ? 0 : 1) || Number(a.order || 0) - Number(b.order || 0) || String(a.id).localeCompare(String(b.id)); }
   function stageSummary(item) {
@@ -166,5 +172,5 @@ window.BandShared = (() => {
     let at=0;const ordered=all.map(i=>i.scope===moving.scope?next[at++]:i);const changed=[];ordered.forEach((i,n)=>{if(Number(i['並び順'])!==n+1){i['並び順']=n+1;changed.push(i);}});return changed;
   }
   const layoutModel = { pairedInstrument, pairedPerson, setInstrument, move: moveLayoutItem, remove: removeLayoutItem, mode: layoutMode, setMode: setLayoutMode };
-  return { render, renderDaySchedule, compareTimeline, renderLayout, layoutModel, readStage, stageOrder, stageSummary, renderProgress, reorderTimeline };
+  return { timelinePlace, render, renderDaySchedule, compareTimeline, renderLayout, layoutModel, readStage, stageOrder, stageSummary, renderProgress, reorderTimeline };
 })();

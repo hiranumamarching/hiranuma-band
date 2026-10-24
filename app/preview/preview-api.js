@@ -429,6 +429,7 @@ function parentCard_(auth, sessionId) {
   }).sort(compareTimeline_).map(function(item) {
     const row = {};
     ['項目ID', '予定ID', '日区分', '時刻', '並び順', 'scope', '種別', '内容', '場所ID', '持ち物', '注意点'].forEach(function(key) { row[key] = item[key]; });
+    projectTimelinePlace_(item, row);
     row['担当'] = String(item['担当'] || '').split(',').map(function(id) { return id.trim(); }).filter(function(id) { return allowedIds[id]; }).join(',');
     return row;
   });
@@ -1136,6 +1137,7 @@ function publicDaySchedule_(sessions) {
   }).sort(compareTimeline_).map(function(item) {
     const row = {};
     ['項目ID', '予定ID', '日区分', '時刻', '並び順', '種別', '内容', '場所ID'].forEach(function(key) { row[key] = item[key]; });
+    projectTimelinePlace_(item, row);
     return row;
   });
 }
@@ -1466,7 +1468,7 @@ function normalizeStage_(value, sessionId) {
   if (!value) return { speakers: [], microphones: [], prepare: [], layoutId: '', changes: '' };
   let stage; try { stage = typeof value === 'string' ? JSON.parse(value) : value; } catch (_) { throw apiError_(API_ERROR.INVALID_REQUEST, '演奏進行の形式が不正です。'); }
   if (!stage || typeof stage !== 'object' || Array.isArray(stage)) throw apiError_(API_ERROR.INVALID_REQUEST, '演奏進行の形式が不正です。');
-  assertKnownKeys_(stage, ['speakers','prepare','microphones','layoutId','changes']);
+  assertKnownKeys_(stage, ['speakers','prepare','microphones','layoutId','changes','placeText']);
   const people = {};
   latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }).filter(function(row) { return asBoolean_(row['在籍']); }).forEach(function(row) { people[row['子どもID']] = true; });
   latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }).filter(function(row) { return asBoolean_(row['在籍']); }).forEach(function(row) { people[row['保護者ID']] = true; });
@@ -1477,7 +1479,7 @@ function normalizeStage_(value, sessionId) {
   if (!Array.isArray(microphones) || microphones.length > 100) throw apiError_(API_ERROR.INVALID_REQUEST, 'マイク欄の形式が不正です。');
   const layoutId = text(stage.layoutId, 100);
   if (layoutId && !layoutRows_().some(function(layout) { return layout.id === layoutId && layout.sessionId === sessionId; })) throw apiError_(API_ERROR.INVALID_REQUEST, 'この本番の配置図を選んでください。');
-  return { speakers: ids(stage.speakers || []), prepare: ids(stage.prepare || []), microphones: microphones.map(function(mic) { if (!mic || typeof mic !== 'object' || Array.isArray(mic)) throw apiError_(API_ERROR.INVALID_REQUEST, 'マイク欄の形式が不正です。'); assertKnownKeys_(mic, ['label','from','to']); return { label: text(mic.label, 80), from: person(mic.from), to: person(mic.to) }; }), layoutId: layoutId, changes: text(stage.changes, 1000) };
+  return Object.assign({}, Object.prototype.hasOwnProperty.call(stage, 'placeText') ? {placeText: text(stage.placeText, 200)} : {}, { speakers: ids(stage.speakers || []), prepare: ids(stage.prepare || []), microphones: microphones.map(function(mic) { if (!mic || typeof mic !== 'object' || Array.isArray(mic)) throw apiError_(API_ERROR.INVALID_REQUEST, 'マイク欄の形式が不正です。'); assertKnownKeys_(mic, ['label','from','to']); return { label: text(mic.label, 80), from: person(mic.from), to: person(mic.to) }; }), layoutId: layoutId, changes: text(stage.changes, 1000) });
 }
 function compareStage_(a, b) {
   const day = { '前日': 0, '当日': 1 }; return (day[a['日区分']] || 0) - (day[b['日区分']] || 0) || Number(a['並び順'] || 0) - Number(b['並び順'] || 0) || String(a['項目ID']).localeCompare(String(b['項目ID']));
@@ -1522,7 +1524,12 @@ function assertKnownKeys_(record, allowed) {
   if (!record || typeof record !== 'object' || Array.isArray(record) || Object.keys(record).some(function(key) { return allowed.indexOf(key) < 0; })) throw apiError_(API_ERROR.INVALID_REQUEST, '未対応の項目があります。保存せず入力形式を確認してください。');
 }
 
-return {setupBandDatabase,ensureSheet_,seedDemoData_,appendSeedRows_,createInviteToken_,migratePlacesSchema,migrateMembersSchema,migrateTeachersSchema,migrateTimelineSchema,migrateSessionsSchema,migrateStageSchema,migratePerformanceSchema,doGet,doPost,handleRead_,readAuthorized_,handleWrite_,parentBootstrap_,parentCard_,teacherBootstrap_,adminBootstrap_,saveTeacherAvailability_,saveParentMonth_,saveAdmin_,adminSaveTeacherAvailability_,adminSavePlace_,adminSetPlaceVisibility_,adminSaveHouseholds_,adminSaveGuardians_,adminSaveMembers_,adminSaveRoster_,adminSaveTeachers_,adminCreateMonth_,createSaturdaySessions_,adminSaveSessions_,adminAppend_,adminSaveTimelineItems_,adminPublishMonth_,selfPracticeMissingItems_,publishedMonths_,publishedSessions_,attendanceCounts_,publicDutyAssignments_,authorize_,readTable_,appendObjects_,getDatabase_,ensureDeadlineOpen_,withWriteLock_,latestRows_,indexBy_,withoutKeys_,copyObject_,hasAssignedId_,compareTimeline_,asBoolean_,formatCell_,parsePostRequest_,requireRole_,apiError_,apiErrorCode_,jsonResponse_,activeSessions_,dutyAssignments_,publicTeachers_,placeIsVisible_,allPlaces_,activePlaces_,placesForReferences_,validatePlaceReference_,sharedSchedule_,publicEventNames_,publicDaySchedule_,referenceSources_,referenceOrder_,adminImportReferences_,sourceGuideItems_,sourceAnnualEventCandidates_,adminSaveGuideItems_,adminSaveAnnualEventCandidates_,adminBackupReferences_,referenceSheetValues_,parseDutyGuide_,parseAnnualEvents_,requireRecords_,validMonthId_,validateDeadline_,validDate_,cleanSession_,ensureSessionsSchema_,ensureMembersSchema_,ensureTimelineSchema_,adminSaveMonth_,adminDeleteSession_,unpublishSessions_,adminSaveSelfPractice_,adminSaveDutyAssignments_,sheetLiteral_,keyedRows_,partialAnswer_,teacherAssignmentConflicts_,layoutRows_,publicLayouts_,adminSaveLayouts_,normalizeStage_,compareStage_,publicStage_,instrumentText_,instrumentRows_,adminSaveInstruments_,assertKnownKeys_};})(context));
+function projectTimelinePlace_(item, row) {
+  let stage; try { stage = JSON.parse(item.stageJSON || '{}'); } catch (_) { return; }
+  if (stage && typeof stage.placeText === 'string') row['場所自由入力'] = stage.placeText;
+}
+
+return {projectTimelinePlace_,setupBandDatabase,ensureSheet_,seedDemoData_,appendSeedRows_,createInviteToken_,migratePlacesSchema,migrateMembersSchema,migrateTeachersSchema,migrateTimelineSchema,migrateSessionsSchema,migrateStageSchema,migratePerformanceSchema,doGet,doPost,handleRead_,readAuthorized_,handleWrite_,parentBootstrap_,parentCard_,teacherBootstrap_,adminBootstrap_,saveTeacherAvailability_,saveParentMonth_,saveAdmin_,adminSaveTeacherAvailability_,adminSavePlace_,adminSetPlaceVisibility_,adminSaveHouseholds_,adminSaveGuardians_,adminSaveMembers_,adminSaveRoster_,adminSaveTeachers_,adminCreateMonth_,createSaturdaySessions_,adminSaveSessions_,adminAppend_,adminSaveTimelineItems_,adminPublishMonth_,selfPracticeMissingItems_,publishedMonths_,publishedSessions_,attendanceCounts_,publicDutyAssignments_,authorize_,readTable_,appendObjects_,getDatabase_,ensureDeadlineOpen_,withWriteLock_,latestRows_,indexBy_,withoutKeys_,copyObject_,hasAssignedId_,compareTimeline_,asBoolean_,formatCell_,parsePostRequest_,requireRole_,apiError_,apiErrorCode_,jsonResponse_,activeSessions_,dutyAssignments_,publicTeachers_,placeIsVisible_,allPlaces_,activePlaces_,placesForReferences_,validatePlaceReference_,sharedSchedule_,publicEventNames_,publicDaySchedule_,referenceSources_,referenceOrder_,adminImportReferences_,sourceGuideItems_,sourceAnnualEventCandidates_,adminSaveGuideItems_,adminSaveAnnualEventCandidates_,adminBackupReferences_,referenceSheetValues_,parseDutyGuide_,parseAnnualEvents_,requireRecords_,validMonthId_,validateDeadline_,validDate_,cleanSession_,ensureSessionsSchema_,ensureMembersSchema_,ensureTimelineSchema_,adminSaveMonth_,adminDeleteSession_,unpublishSessions_,adminSaveSelfPractice_,adminSaveDutyAssignments_,sheetLiteral_,keyedRows_,partialAnswer_,teacherAssignmentConflicts_,layoutRows_,publicLayouts_,adminSaveLayouts_,normalizeStage_,compareStage_,publicStage_,instrumentText_,instrumentRows_,adminSaveInstruments_,assertKnownKeys_};})(context));
   function post(request) { return JSON.parse(context.doPost({ postData: { contents: JSON.stringify(request) } }).text); }
   function admin(action, payload = {}) { const response = post({ ...payload, action, a: properties.get('ADMIN_TOKEN') }); if (!response.ok) throw Object.assign(new Error(response.message), { code: response.error }); return response.data; }
   return { context, sheets, spreadsheet, properties, post, admin, addExternalSpreadsheet, get writes() { return writes; }, get locked() { return locked; } };
