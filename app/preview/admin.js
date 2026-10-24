@@ -668,6 +668,7 @@
     return rows;
   }
   function newRosterRow() { return { id: crypto.randomUUID(), householdId: `H-${crypto.randomUUID()}`, householdName: '', guardianId: `G-${crypto.randomUUID()}`, guardianName: '', guardianRoles: '', child1Id: '', child1Name: '', child1Grade: '', child2Id: '', child2Name: '', child2Grade: '' }; }
+  const familyOpen = new Map();
   function renderFamilies(panel) {
     const note = el('p', '家庭名は1回だけ表示し、その下に保護者と子どもを分けて入力します。', 'muted');
     const editor = el('section', undefined, 'card family-add-editor'); editor.hidden = !familyAddOpen;
@@ -684,7 +685,7 @@
       const householdName = householdField[1].value.trim(); if (!householdName) { error.textContent = '家庭名を入力してください。'; error.hidden = false; householdField[1].focus(); return; }
       const row = newRosterRow(); row.householdName = householdName; row.guardianName = guardianField[1].value.trim(); row.child1Name = child1Field[1].value.trim(); row.child1Grade = grade1Field[1].value.trim(); row.child2Name = child2Field[1].value.trim(); row.child2Grade = grade2Field[1].value.trim();
       if (row.child1Name) row.child1Id = `M-${crypto.randomUUID()}`; if (row.child2Name) row.child2Id = `M-${crypto.randomUUID()}`;
-      row.child1Instrument = familyAddDraft.child1Instrument || ''; row.child2Instrument = familyAddDraft.child2Instrument || ''; rosterDraft.push(row); Object.keys(familyAddDraft).forEach(key => delete familyAddDraft[key]); familyAddOpen = false; markRoster(); render();
+      row.child1Instrument = familyAddDraft.child1Instrument || ''; row.child2Instrument = familyAddDraft.child2Instrument || ''; rosterDraft.push(row); familyOpen.set(row.householdId, true); Object.keys(familyAddDraft).forEach(key => delete familyAddDraft[key]); familyAddOpen = false; markRoster(); render();
     }, undefined, 'primary'); editorActions.append(cancel, submit); editor.append(editorActions);
     const add = button(familyAddOpen ? '追加を閉じる' : '家庭を追加', () => { editor.hidden = !editor.hidden; familyAddOpen = !editor.hidden; add.textContent = editor.hidden ? '家庭を追加' : '追加を閉じる'; if (!editor.hidden) householdField[1].focus(); }, undefined, 'primary');
     const groups = [...new Map(rosterDraft.map(row => [row.householdId, { householdId: row.householdId, householdName: row.householdName || '', rows: [] }])).values()];
@@ -698,7 +699,12 @@
       markRoster(); render();
     };
     groups.forEach(group => {
-      const card = el('article', undefined, 'card family-roster-card'); const head = el('div', undefined, 'family-roster-head');
+      const card = el('details', undefined, 'card family-roster-card'); card.open = familyOpen.get(group.householdId) || false;
+      const summary = el('summary'); summary.style.overflowWrap = 'anywhere'; summary.style.cursor = 'pointer';
+      const updateSummary = () => { const names = group.rows.flatMap(row => [row.guardianName, row.child1Name, row.child2Name]).filter(Boolean); summary.textContent = `${group.rows[0]?.householdName || '家庭名未入力'} — ${[...new Set(names)].join('・') || 'メンバー未入力'}`; };
+      updateSummary(); card.append(summary); card.addEventListener('toggle', () => { if (card.isConnected) familyOpen.set(group.householdId, card.open); });
+      card.addEventListener('input', () => { familyOpen.set(group.householdId, true); updateSummary(); });
+      const head = el('div', undefined, 'family-roster-head');
       const familyName = document.createElement('input'); familyName.value = group.householdName; familyName.placeholder = '家庭名'; familyName.setAttribute('aria-label', '家庭名'); familyName.addEventListener('input', () => { rosterDraft.filter(row => row.householdId === group.householdId).forEach(row => { row.householdName = familyName.value; }); markRoster(); });
       head.append(familyName, button('家庭を削除', () => confirmRemoval(group.householdName || 'この家庭', () => { rosterDraft = rosterDraft.filter(row => row.householdId !== group.householdId); markRoster(); render(); }), undefined, 'danger')); card.append(head);
       const guardians = el('section', undefined, 'family-roster-section'); guardians.append(el('h3', '保護者')); const guardianList = el('div', undefined, 'family-roster-people');
@@ -889,7 +895,7 @@
     };
     const add = (kind, label, memberId = '') => { if (layout.items.length >= 100) { message('配置は100項目までです。', true); return; } const item = { id: `POS-${crypto.randomUUID()}`, kind, label, memberId, x: 20 + (layout.items.length % 4) * 20, y: 25 + (Math.floor(layout.items.length / 4) % 3) * 20 }; layout.items.push(item); selected = item.id; update(); redraw(); return item; };
     const members = el('details'); members.append(el('summary', '＋人を追加（メンバーから選択）'), pills(sortedMembers().map(member => [member['子どもID'], member['氏名']]), '', id => { if (layout.items.some(item => item.memberId === id)) { message('このメンバーは配置済みです。', true); return; } add('person', data.masters.members.find(member => member['子どもID'] === id)['氏名'], id); }, '配置するメンバー'));
-    const instruments = el('div', undefined, 'row'); const input = document.createElement('input'); input.placeholder = '楽器名（40文字以内）'; input.maxLength = 40; input.setAttribute('aria-label', '追加する楽器名'); instruments.append(input, button('＋楽器を追加', () => { if (!input.value.trim()) return; add('instrument', input.value.trim()); input.value = ''; }));
+    const instruments = el('details'); instruments.append(el('summary', '＋楽器を追加')); const instrumentChoices = (data.instruments || []).filter(item => bool(item['有効'])); if (instrumentChoices.length) instruments.append(pills(instrumentChoices.map(item => [item['楽器ID'], item['表示名']]), '', id => { const instrument = instrumentChoices.find(item => item['楽器ID'] === id); if (instrument) add('instrument', instrument['表示名']); }, '登録済み楽器から追加')); else instruments.append(el('p', '登録済みの楽器はありません。自由入力で追加できます。', 'muted')); const input = document.createElement('input'); input.placeholder = '楽器名（40文字以内）'; input.maxLength = 40; input.setAttribute('aria-label', '追加する楽器名'); const freeInstrument = el('div', undefined, 'row'); freeInstrument.append(input, button('自由入力で追加', () => { if (!input.value.trim()) return; add('instrument', input.value.trim()); input.value = ''; })); instruments.append(el('p', '自由入力はこの配置図だけに追加します。楽器マスターには登録しません。', 'muted'), freeInstrument);
     const combinedMembers = el('details'); combinedMembers.append(el('summary', '＋名前と担当楽器を一体で追加'), pills(sortedMembers().map(member => [member['子どもID'], `${member['氏名']}／${member['基本担当楽器'] || '担当楽器未設定'}`]), '', id => {
       const member = data.masters.members.find(member => member['子どもID'] === id); let person = layout.items.find(item => item.kind === 'person' && item.memberId === id);
       if (person) { selected=person.id; BandShared.layoutModel.setMode(layout,'combined'); redraw(); message('このメンバーは配置済みです。担当楽器を確認・変更できます。'); return; }
