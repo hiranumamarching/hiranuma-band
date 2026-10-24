@@ -1,0 +1,35 @@
+
+    header { padding:9px 0; }
+    header h1 { margin:0; font-size:1.2rem; }
+    main.shell { padding:5px 10px 72px; }
+    #message { margin:3px 2px; font-size:.75rem; line-height:1.25; }
+    .teacher-card { padding:8px 10px; margin:6px 0; }
+    .teacher-identity { display:flex; align-items:baseline; gap:8px; }
+    .teacher-identity p, .teacher-identity h2 { margin:0; }
+    .teacher-identity p { font-size:.75rem; }
+    .teacher-identity h2 { font-size:1rem; }
+    .teacher-card > p { margin:3px 0 0; font-size:.72rem; line-height:1.35; }
+    .teacher-month { display:flex; align-items:center; gap:8px; padding:7px 9px; margin:6px 0; }
+    .teacher-month h2 { flex:0 0 auto; margin:0; font-size:.9rem; }
+    .month-pills { display:flex; flex:1; flex-wrap:nowrap; gap:4px; min-width:0; overflow-x:auto; margin:0; }
+    .month-pills button { flex:1 0 auto; min-height:34px; padding:4px 8px; font-size:.78rem; }
+    .teacher-grid-card { padding:3px 6px; margin:6px 0 3px; }
+    .teacher-grid { width:100%; table-layout:fixed; font-size:.8rem; }
+    .teacher-grid th, .teacher-grid td { padding:4px 3px; vertical-align:middle; }
+    .teacher-grid thead th { background:#f1f3f8; color:var(--muted); text-align:center; font-size:.75rem; }
+    .teacher-grid thead th span { display:block; line-height:1.2; }
+    .teacher-grid thead th small { display:block; margin-top:2px; font-size:.7rem; font-weight:500; white-space:nowrap; }
+    .teacher-grid thead th:first-child { width:27%; text-align:left; }
+    .teacher-day-row { height:52px; }
+    .teacher-day-date { font-size:.75rem; white-space:nowrap; }
+    .teacher-day-date span, .teacher-day-date small { display:block; overflow:hidden; text-overflow:ellipsis; }
+    .teacher-day-date small { color:var(--muted); font-size:.62rem; font-weight:400; }
+    .teacher-slot-cell { text-align:center; }
+    .answer-buttons { display:grid; grid-template-columns:repeat(2, 40px); justify-content:center; gap:4px; }
+    .answer-choice { width:40px; height:40px; min-height:40px; padding:0; border-radius:50%; font-size:1rem; font-weight:700; }
+    .cell-state { display:block; color:var(--muted); text-align:center; font-size:.72rem; white-space:nowrap; }
+    .merged-state { background:#f7f8fb; }
+    .save-bar { position:fixed; z-index:5; left:0; right:0; bottom:0; display:flex; align-items:center; gap:10px; padding:6px 12px max(6px,env(safe-area-inset-bottom)); border-top:1px solid var(--line); background:rgba(246,247,251,.97); }
+    .save-bar #save-state { flex:1; margin:0; font-size:.75rem; }
+    .save-bar button { flex:0 0 auto; min-height:40px; padding:5px 14px; }
+  
