@@ -801,6 +801,69 @@
     const cancel = button('キャンセル', () => { committed = true; dialog.close(); }); const actions = el('div', undefined, 'row'); actions.append(cancel, add); dialog.append(actions);
     dialog.addEventListener('close', () => { committed = true; dialog.remove(); }, { once: true }); document.body.append(dialog); dialog.showModal(); cancel.focus();
   }
+  function openStageImport(session, onAdded) {
+    if (hasChanges()) { message('未保存の変更があります。先に保存してから取り込んでください。', true); return; }
+    if (document.querySelector('.stage-import-dialog')) return;
+    const dialog = el('dialog', undefined, 'stage-import-dialog');
+    dialog.setAttribute('aria-label', '曲・MCをまとめて取り込む');
+    dialog.style.cssText = 'width:min(640px,calc(100vw - 24px));max-height:85vh;overflow:auto;box-sizing:border-box';
+    const notice = el('p'); notice.setAttribute('role','status');
+    const storageKey='hiranuma.preview.20261024.v1';
+    let originalSnapshot;
+    try { originalSnapshot=localStorage.getItem(storageKey); } catch (_) { message('保存データを読み取れません。取込を中止しました。',true); return; }
+    const alreadyImported = prefix => {
+      if(data.timelineItems.some(r=>r['項目ID'].startsWith(prefix)))return true;
+      const raw=localStorage.getItem(storageKey);if(raw!==originalSnapshot)throw new Error('別画面で保存内容が変わりました。キャンセルして再読込後に確認してください。');
+      if(!raw)return false;
+      const saved=JSON.parse(raw),rows=saved.sheets.find(([name])=>name==='timeline_items')?.[1]||[];
+      const column=rows[0]?.indexOf('項目ID');return column>=0&&rows.slice(1).some(row=>String(row[column]).startsWith(prefix));
+    };
+    const review = el('div'); let prepared = null, committed = false, generation = 0, readingFile=false;
+    const source = field('取込用JSONを貼り付け', '', () => { generation++; prepared=null; review.replaceChildren(); }, 'textarea');
+    const input = source.querySelector('textarea');
+    const file = el('input'); file.type='file'; file.accept='.json,application/json'; file.setAttribute('aria-label','JSONファイルを選択');
+    file.addEventListener('change', async () => { const n=++generation; readingFile=true;prepared=null;review.replaceChildren();try { const f=file.files[0];if(!f)return;if(f.size>200000)throw new Error('ファイルは200KB以内にしてください。');const t=await f.text();if(n===generation&&dialog.open)input.value=t; }catch(e){notice.textContent=e.message;} finally {readingFile=false;} });
+    dialog.append(el('h2','曲・MCをまとめて取り込む'),el('p','端末内だけで処理します。既存項目を残して末尾へ追加します。追加後は通常の「保存」が必要です。'),source,file,notice);
+    // Use the normal textarea field; no clipboard permission or external request is needed.
+    const inspect = button('内容を確認', async () => {
+      const n=++generation; prepared=null;review.replaceChildren();notice.textContent='';
+      try {
+        if(readingFile)throw new Error('ファイルの読み込み完了後に確認してください。');
+        if(input.value.length>200000)throw new Error('原稿は200KB以内にしてください。');
+        const doc=JSON.parse(input.value);
+        if(!doc || doc.format!=='band-stage-v1' || typeof doc.importId!=='string' || !/^[A-Za-z0-9_-]{1,80}$/.test(doc.importId))throw new Error('形式または取込IDを確認してください。');
+        if(doc.eventDate!==session['日付'])throw new Error('原稿の日付と選択した本番の日付が違います。本番を選び直してください。');
+        if(!Array.isArray(doc.items)||!doc.items.length||doc.items.length>100)throw new Error('項目数は1〜100件にしてください。');
+        const items=doc.items.map((v,i)=>{
+          if(!v || !['曲','MC'].includes(v.kind)||typeof v.text!=='string'||!v.text.trim()||v.text.length>10000|| (v.speakers!==undefined && (!Array.isArray(v.speakers)||v.speakers.length>20||v.speakers.some(s=>typeof s!=='string'||!s.trim()||s.length>100))))throw new Error(`${i+1}件目の種別・本文・担当を確認してください。`);
+          return {kind:v.kind,text:v.text,speakers:v.speakers||[],ids:[]};
+        });
+        const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([session['予定ID'],doc.importId])));
+        if(n!==generation||!dialog.open)return;
+        const prefix='TL-IMPORT-'+Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('')+'-';
+        if(alreadyImported(prefix))throw new Error('この取込IDは追加済みです。再追加せず、既存項目を確認・編集してください。');
+        const choices=[...active('guardians').map(p=>({id:p['保護者ID'],name:p['表示名'],label:`保護者：${p['表示名']} (${p['保護者ID']})`})),...sortedMembers().map(p=>({id:p['子どもID'],name:p['氏名'],label:`メンバー：${p['氏名']} (${p['子どもID']})`}))];
+        review.append(el('h3',`追加先：${session['日付']} ／ ${eventTitle(session)}`),el('p',`${items.length}件を下記の順で末尾に追加します。同名曲も別項目として残します。`));
+        items.forEach((item,index)=>{
+          const card=el('section',undefined,'card');card.append(el('h3',`${index+1}. ${item.kind}`));const text=el('p',item.text);text.style.whiteSpace='pre-wrap';text.style.overflowWrap='anywhere';card.append(text);
+          item.speakers.forEach((name,k)=>{const matches=choices.filter(p=>p.name===name);item.ids[k]=matches.length===1?matches[0].id:null;const label=`${index+1}件目 担当「${name}」`;const wrap=el('label',label),select=el('select');select.setAttribute('aria-label',label);[['','選択してください'],['__none','未設定のまま追加'],...choices.map(p=>[p.id,p.label])].forEach(([id,title])=>{const opt=el('option',title);opt.value=id;select.append(opt);});select.value=item.ids[k]||'';select.addEventListener('change',()=>{item.ids[k]=select.value||null;});wrap.append(select);card.append(wrap);});
+          if(!item.speakers.length)card.append(el('p','担当：未指定（追加後に設定できます）','muted'));review.append(card);
+        });
+        let confirmed=false;review.append(check('対象の本番・順序・本文・担当を確認しました',false,v=>confirmed=v));
+        prepared={prefix,items};
+        review.append(button('確認した項目を追加',()=>{
+          if(committed||!prepared||!dialog.open)return;
+          if(!confirmed||items.some(v=>v.ids.some(id=>id===null))){notice.textContent='確認チェックと担当の選択（または未設定）を完了してください。';return;}
+          try { if(hasChanges()||alreadyImported(prefix)){notice.textContent='画面の変更を先に保存し、追加済み項目を確認してください。';return;} } catch(e) {notice.textContent=e.message;return;}
+          let order=Math.max(0,...data.timelineItems.filter(r=>r['予定ID']===session['予定ID']&&r.scope==='ステージ進行').map(r=>Number(r['並び順'])||0));
+          const added=items.map((v,i)=>({'項目ID':prefix+i,'予定ID':session['予定ID'],'日区分':'当日','時刻':'','並び順':++order,scope:'ステージ進行','種別':v.kind,'内容':v.text,stageJSON:JSON.stringify({speakers:[...new Set(v.ids.filter(id=>id&&id!=='__none'))]}),'場所ID':'','担当':'','担当自由入力':'','持ち物':'','注意点':'','有効':true}));
+          committed=true;data.timelineItems.push(...added);added.forEach(r=>mark('timelineItems',r['項目ID']));dialog.close();onAdded(added);message(`${added.length}件を追加しました。まだ未保存です。「保存」を押してください。`);
+        },undefined,'primary'));
+      } catch(e) { notice.textContent=e instanceof SyntaxError?'JSONを読み取れません。原稿全体をコピーしてください。':e.message; }
+    });
+    dialog.append(inspect,review,button('キャンセル',()=>dialog.close()));
+    dialog.addEventListener('close',()=>{generation++;prepared=null;dialog.remove();},{once:true});document.body.append(dialog);dialog.showModal();
+  }
   function eventEditor(session) {
     const sessionId=session['予定ID'];const wrap=el('div',undefined,'event-workspace');const event=eventFor(session);
     wrap.id=`event-day-${sessionId}`;
@@ -847,6 +910,7 @@
       const save = button('保存', ()=>$('save').click()); save.dataset.eventSave = '';
       const state = el('span', undefined, 'event-save-state'); state.dataset.eventSaveState = ''; state.setAttribute('role','status');
       actions.replaceChildren(button('＋追加', chooseAddition, undefined, 'primary'), save, state);
+      if(view==='stage')actions.append(button('曲・MCをまとめて取り込む',()=>openStageImport(session,added=>{timeline.push(...added);selectedId=added[0]?.['項目ID']||selectedId;draw();})));
       if(view==='day')actions.append(button('基本の流れを追加',()=>openEventTemplate(session,added=>{timeline.push(...added);selectedId=added[0]?.['項目ID']||selectedId;selectedTimelineItems.set(sessionId+'-day',selectedId);draw();})));
       addHint.hidden = view === 'layout'; moveNotice.hidden = view === 'layout';
       body.replaceChildren();
