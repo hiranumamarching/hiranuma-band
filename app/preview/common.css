@@ -587,3 +587,6 @@ hr {
 
 /* Keep the single event navigation reachable while editing on phones. */
 .event-view-tabs .pills{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.event-view-tabs button{min-width:0;min-height:44px}.event-workspace input,.event-workspace textarea,.event-workspace select{scroll-margin-top:76px}.event-basic>summary{padding:12px 0;cursor:pointer}.event-basic[open]>.event-heading{margin-top:12px}
+
+/* Arrow tapping: suppress double-tap zoom, preserve panning and pinch zoom. */
+.layout-editor-moves > button { touch-action: manipulation; }
