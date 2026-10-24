@@ -543,7 +543,7 @@ hr {
 .layout-editor-controls{min-width:0}.layout-editor-selection{font-size:.85rem;line-height:1.4;margin:0 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:20px}
 .layout-editor-moves{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.layout-editor-moves button{border-radius:9px;font-size:1.2rem;min-height:46px;padding:5px}
 .layout-editor-footer{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px}.layout-editor-state{grid-column:1/-1;font-size:.75rem;line-height:1.4;min-height:18px}.layout-editor-footer button{border-radius:9px;font-size:.9rem}
-@media(max-width:700px){.event-toolbar{position:static}.event-toolbar button{padding:9px 7px}.event-workspace textarea,.event-workspace input{scroll-margin-top:12px}.layout-view .layout-controls{gap:6px}.layout-view .layout-controls button{font-size:.8rem;padding:7px 9px}}
+@media(max-width:700px){.event-toolbar{position:sticky;top:0}.event-toolbar button{padding:9px 7px}.event-workspace textarea,.event-workspace input{scroll-margin-top:12px}.layout-view .layout-controls{gap:6px}.layout-view .layout-controls button{font-size:.8rem;padding:7px 9px}}
 @media(max-height:500px){.layout-editor-frame{gap:4px;padding-top:max(4px,env(safe-area-inset-top));padding-bottom:max(4px,env(safe-area-inset-bottom));grid-template-rows:auto auto minmax(60px,1fr) auto}.layout-editor-hint{display:none}.layout-editor-modes{position:absolute;left:max(12px,env(safe-area-inset-left));right:calc(max(12px,env(safe-area-inset-right)) + 80px);top:max(4px,env(safe-area-inset-top))}.layout-editor-head h2{visibility:hidden}.layout-editor-head{justify-content:flex-end}.layout-edit-board{grid-row:3}.layout-editor-controls{grid-row:4;grid-column:1;padding-right:48%}.layout-editor-selection{font-size:.7rem;min-height:16px;margin:0 0 2px}.layout-editor-moves{gap:4px}.layout-editor-moves button{min-height:40px}.layout-editor-footer{grid-row:4;grid-column:1;margin-left:55%;align-self:end;gap:4px}.layout-editor-footer button{padding:4px;font-size:.75rem;min-height:40px}.layout-editor-state{font-size:.65rem}}
 
 /* Schedule actions stay above the list and each day's collapsed details. */
@@ -584,3 +584,6 @@ hr {
 .month-session-summary span{font-size:.9rem;overflow-wrap:anywhere}
 .plan-undecided{margin:6px 0;color:var(--muted,#666)}
 .utility-tabs:empty{display:none}
+
+/* Keep the single event navigation reachable while editing on phones. */
+.event-view-tabs .pills{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.event-view-tabs button{min-width:0;min-height:44px}.event-workspace input,.event-workspace textarea,.event-workspace select{scroll-margin-top:76px}.event-basic>summary{padding:12px 0;cursor:pointer}.event-basic[open]>.event-heading{margin-top:12px}

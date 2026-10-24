@@ -766,7 +766,7 @@
     const references = data.references || {};
     const annual=el('details');annual.append(el('summary','年間の本番候補・資料'));annual.append(references.status === 'ready' ? referenceEventEditor(references.annualEvents || []) : referenceImportCard());panel.append(annual);
   }
-  const eventViews = new Map(), selectedTimelineItems = new Map();
+  const eventViews = new Map(), selectedTimelineItems = new Map(), eventBasicsOpen = new Map();
   function openEventTemplate(session, onAdded) {
     if (document.querySelector('.event-template-dialog')) return;
     const sessionId = session['予定ID'];
@@ -803,7 +803,7 @@
     essentials.append(field('日付', session['日付'], value => { session['日付'] = value; mark('sessions', sessionId); }, 'date'), field('会場', event['会場'], value => { event['会場'] = value; mark('events', sessionId); }));
     timeFields.forEach(key => essentials.append(field(key + '（未定可）', session[key], value => { session[key] = value; mark('sessions', sessionId); }, 'time')));
     heading.append(essentials, el('p', '時刻の空欄は「未定」で保存します。', 'muted'), button('時刻を未定にする', () => { timeFields.forEach(key => { session[key] = ''; }); mark('sessions', sessionId); render(); }), placePicker(session, () => render()), field('共有備考', session['備考'], value => { session['備考'] = value; mark('sessions', sessionId); }, 'textarea'), button('出欠・当番を確認', () => editSession(session)));
-    wrap.append(heading);
+
     let view=eventViews.get(sessionId)||'day';
     const timeline=data.timelineItems.filter(item=>item['予定ID']===sessionId);
     const toolbar=el('div',undefined,'event-toolbar');const tabsBox=el('div',undefined,'event-view-tabs');const actions=el('div',undefined,'event-actions');const body=el('div');
@@ -855,8 +855,8 @@
       if(view==='stage'){const preview=el('details',undefined,'event-preview');preview.append(el('summary','今・次の確認画面を見る'));preview.append(previewContent);body.append(preview);}
       updateSaveState();
     };
-    toolbar.append(tabsBox,actions);wrap.append(toolbar,addHint,moveNotice,body);draw();
-    const basic=el('details',undefined,'event-basic');basic.append(el('summary','本番の基本情報（会場・衣装・持ち物）'));const set=(key,value)=>{event[key]=value;mark('events',eventKey(event));};const grid=el('div',undefined,'grid');['衣装'].forEach(key=>grid.append(field(key,event[key],value=>set(key,value))));basic.append(grid,field('子どもの持ち物',event['子どもの持ち物'],value=>set('子どもの持ち物',value),'textarea'),field('全体連絡',event['全体連絡'],value=>set('全体連絡',value),'textarea'));wrap.append(basic);return wrap;
+    toolbar.append(tabsBox);draw();
+    const basic=el('details',undefined,'event-basic');basic.append(el('summary','本番の基本情報（名前・会場・時刻など）'),heading);basic.open=eventBasicsOpen.get(sessionId) ?? !event['本番名'];basic.addEventListener('toggle',()=>{if(basic.isConnected)eventBasicsOpen.set(sessionId,basic.open);});const set=(key,value)=>{event[key]=value;mark('events',eventKey(event));};const grid=el('div',undefined,'grid');['衣装'].forEach(key=>grid.append(field(key,event[key],value=>set(key,value))));basic.append(grid,field('子どもの持ち物',event['子どもの持ち物'],value=>set('子どもの持ち物',value),'textarea'),field('全体連絡',event['全体連絡'],value=>set('全体連絡',value),'textarea'));wrap.append(toolbar,basic,actions,addHint,moveNotice,body);return wrap;
   }
   const selectedLayouts = new Map(), selectedLayoutItems = new Map();
   function layoutEditor(session) {
