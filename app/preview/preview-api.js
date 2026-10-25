@@ -61,7 +61,7 @@ const BAND_DB_SCHEMA = {
   session_selfpractice: ['予定ID', '鍵の担当', '中止判断者', '緊急連絡先', '施設使用申請済', '実施報告'],
   teacher_availability: ['先生ID', '予定ID', '枠', '可否', '送信時刻'],
   attendance: ['子どもID', '予定ID', '午前', '午後', '連絡事項', '入力者', '送信時刻'],
-  duty_offers: ['保護者ID', '予定ID', '可否', 'メモ', '送信時刻'],
+  duty_offers: ['保護者ID', '予定ID', '可否', 'メモ', '送信時刻', '午前可否', '午後可否'],
   duty_assignments: ['予定ID', '役割', '保護者ID', '区分', '更新時刻'],
   events: ['予定ID', '本番名', '会場', '衣装', '子どもの持ち物', '全体連絡'],
   event_layouts: ['配置図ID', '予定ID', '図名', '備考', '配置JSON', '有効', '更新時刻'],
@@ -523,6 +523,7 @@ function saveParentMonth_(auth, request) {
   return withWriteLock_(function() {
   const attendanceRows = Array.isArray(request.attendance) ? request.attendance : [];
   const dutyRows = Array.isArray(request.dutyOffers) ? request.dutyOffers : [];
+  if(dutyRows.length){const sheet=getDatabase_().getSheetByName('duty_offers');const headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];if(!headers.includes('午前可否')||!headers.includes('午後可否'))throw apiError_(API_ERROR.NOT_CONFIGURED,'当番時間帯の保存列の更新が必要です。');}
   if (!attendanceRows.length && !dutyRows.length) throw apiError_(API_ERROR.INVALID_REQUEST, '送信する入力がありません。');
   const householdId = auth.household['家庭ID'];
   const memberMap = indexBy_(latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }).filter(function(row) { return row['家庭ID'] === householdId && asBoolean_(row['在籍']); }), '子どもID');
@@ -548,7 +549,13 @@ function saveParentMonth_(auth, request) {
     const session = sessions[row.sessionId];
     if (!session || !fallbackGuardianId || (row.guardianId && row.guardianId !== fallbackGuardianId)) throw apiError_(API_ERROR.FORBIDDEN, 'この家庭では送信できない当番可否です。');
     ensureDeadlineOpen_(months[session['月ID']], '保護者入力締切');
-    return { '保護者ID': fallbackGuardianId, '予定ID': row.sessionId, '可否': partialAnswer_(row, 'available', (priorOffers[fallbackGuardianId + '|' + row.sessionId] || {})['可否']), 'メモ': row.note === undefined ? (priorOffers[fallbackGuardianId + '|' + row.sessionId] || {})['メモ'] || '' : String(row.note || ''), '送信時刻': new Date() };
+    const prior=priorOffers[fallbackGuardianId+'|'+row.sessionId]||{};
+    const touched=row.morning!==undefined||row.afternoon!==undefined;
+    if(!touched && (typeof prior['午前可否']==='boolean'||typeof prior['午後可否']==='boolean') && row.available!==undefined && partialAnswer_(row,'available',prior['可否'])!==prior['可否'])throw apiError_(API_ERROR.INVALID_REQUEST,'午前・午後を指定できる画面で回答してください。');
+    for(const key of ['morning','afternoon'])if(row[key]!==undefined&&row[key]!==null&&typeof row[key]!=='boolean')throw apiError_(API_ERROR.INVALID_REQUEST,'当番の午前・午後は可能/不可/未回答で指定してください。');
+    const morning=partialAnswer_(row,'morning',prior['午前可否']);const afternoon=partialAnswer_(row,'afternoon',prior['午後可否']);
+    const available=touched?(morning===true||afternoon===true?true:morning===false&&afternoon===false?false:''):partialAnswer_(row,'available',prior['可否']);
+    return { '保護者ID': fallbackGuardianId, '予定ID': row.sessionId, '可否': available, '午前可否':morning, '午後可否':afternoon, 'メモ': row.note === undefined ? (priorOffers[fallbackGuardianId + '|' + row.sessionId] || {})['メモ'] || '' : String(row.note || ''), '送信時刻': new Date() };
   });
     if (attendance.length) appendObjects_('attendance', attendance);
     if (offers.length) appendObjects_('duty_offers', offers);
@@ -1551,6 +1558,7 @@ let h;let storageError='';try{const saved=localStorage.getItem(KEY);h=saved?rest
 window.BandAPI={create(role){return{hasToken:true,endpoint:'架空データ・このブラウザー内保存',configure(){throw Error('プレビューから外部サービスへ接続できません。');},forget(){},async request(action,payload={}){
 let saved;try{saved=localStorage.getItem(KEY);if(saved)h=restore(saved);}catch(e){throw Error('端末内の保存データを読み取れません。初期状態へ戻す操作で復旧できます。');}
 const before=snapshot(h);const auth=role==='a'?{a:h.properties.get('ADMIN_TOKEN')}:role==='k'?{k:h.context.readTable_('m_households')[0]['招待トークン']}:{t:h.context.readTable_('m_teachers')[0]['招待トークン']};
+if(action==='save_parent_month'&&role==='k'){const sheet=h.sheets.get('duty_offers');for(const key of ['午前可否','午後可否'])if(!sheet.rows[0].includes(key))sheet.rows[0].push(key);}
 const result=h.post({...payload,...auth,action});if(!result.ok){h=restore(before);throw Object.assign(Error(result.message),{code:result.error});}
 if(!['admin_bootstrap','parent_bootstrap','parent_card','teacher_bootstrap'].includes(action)){try{localStorage.setItem(KEY,snapshot(h));}catch(e){h=restore(before);throw Error('このブラウザーに保存できませんでした。入力内容を残して再試行してください。');}}
 if(result.data.invites)result.data.invites={households:[],teachers:[]};return result.data;

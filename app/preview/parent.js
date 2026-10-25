@@ -40,7 +40,7 @@
   function offerValue(guardianId, sessionId) {
     const draft = state.offers.get(offerKey(guardianId, sessionId)); if (draft) return draft;
     const row = (state.data.dutyOffers || []).find(item => item['保護者ID'] === guardianId && item['予定ID'] === sessionId);
-    return row ? { available: answer(row['可否']), 'メモ': row['メモ'] || '' } : {};
+    return row ? { available: answer(row['可否']), morning: answer(row['午前可否']), afternoon: answer(row['午後可否']), 'メモ': row['メモ'] || '' } : {};
   }
   function markAttendance(memberId, sessionId, patch) { if (state.busy) return; state.attendance.set(attendanceKey(memberId, sessionId), { ...attendanceValue(memberId, sessionId), ...patch }); markUnsaved(); }
   function markOffer(guardianId, sessionId, patch) { if (state.busy) return; state.offers.set(offerKey(guardianId, sessionId), { ...offerValue(guardianId, sessionId), ...patch }); markUnsaved(); }
@@ -48,7 +48,7 @@
   function dateLabel(value) { const date = new Date(`${value}T00:00:00+09:00`); return `${date.getMonth() + 1}月${date.getDate()}日（${['日','月','火','水','木','金','土'][date.getDay()]}）`; }
   function placeName(session, key = '場所ID', fallback = '場所未設定') { return (state.data.places || []).find(place => place['場所ID'] === session[key])?.['名称'] || fallback; }
   function completeAttendance(memberId, session) { const row = attendanceValue(memberId, session['予定ID']); return slotList(session).filter(([slot]) => isOpen(session, slot)).every(([slot]) => typeof row[slot === 'am' ? 'morning' : 'afternoon'] === 'boolean'); }
-  function allComplete() { const required = inputSessions().filter(session => !isAllDayRest(session)); return required.every(session => members().every(member => completeAttendance(member['子どもID'], session))) && required.every(session => typeof offerValue(state.guardianId, session['予定ID'])['available'] === 'boolean'); }
+  function allComplete() { const required = inputSessions().filter(session => !isAllDayRest(session)); return required.every(session => members().every(member => completeAttendance(member['子どもID'], session))) && required.every(session => ['morning','afternoon'].every(key=>typeof offerValue(state.guardianId,session['予定ID'])[key]==='boolean')); }
   function render() {
     $('tabs').replaceChildren(...tabs.map(([id, label]) => button(label, () => { state.tab = id; render(); }, state.tab === id)));
     const panel = $('panel'); panel.replaceChildren();
@@ -63,7 +63,7 @@
     for (const session of inputSessions()) {
       if (isAllDayRest(session)) { const row = el('div', undefined, 'overview-row'); row.append(el('strong', dateLabel(session['日付']).replace('月', '/').replace('日（', '（')), el('span', '全日休み'), el('span', '回答不要', 'badge')); overview.append(row); continue; }
       const answered = members().filter(member => completeAttendance(member['子どもID'], session)).length;
-      const duty = typeof offerValue(state.guardianId, session['予定ID']).available === 'boolean' ? 1 : 0;
+      const duty = ['morning','afternoon'].every(key=>typeof offerValue(state.guardianId,session['予定ID'])[key]==='boolean') ? 1 : 0;
       const status = answered === members().length && duty ? '入力済み' : '未入力あり';
       const row = el('div', undefined, 'overview-row'); row.append(el('strong', dateLabel(session['日付']).replace('月', '/').replace('日（', '（')), el('span', `${members().length ? `回答済み ${answered}/${members().length}人` : '子ども未登録'}`), el('span', `当番 ${duty}/1`, 'muted'), el('span', status, 'badge')); overview.append(row);
     }
@@ -111,8 +111,18 @@
   function dutyEditor(session) {
     const wrap = el('section', undefined, 'duty');
     wrap.append(el('h3', '保護者当番'), el('p', '当日の担当は管理者が調整して確定します。', 'muted'));
-    const value = offerValue(state.guardianId, session['予定ID']).available;
-    wrap.append(pills([['', '未入力'], ['yes', '当番に入れる'], ['no', '入れない']], value === true ? 'yes' : value === false ? 'no' : '', id => { markOffer(state.guardianId, session['予定ID'], { available: id === 'yes' ? true : id === 'no' ? false : undefined }); state.openSessions.add(session['予定ID']); render(); }, `${dateLabel(session['日付'])}の当番可否`));
+    const current = offerValue(state.guardianId, session['予定ID']);
+    if(typeof current.available==='boolean' && current.morning===undefined && current.afternoon===undefined)wrap.append(el('p',current.available?'以前の回答：当番可（時間帯未指定）。午前・午後はまだ指定されていません。':'以前の回答：当番不可（時間帯未指定）。', 'muted'));
+    for(const [key,label] of [['morning','午前'],['afternoon','午後']]) {
+      const value=current[key];
+      wrap.append(el('h4',label),pills([['','未回答'],['yes','可能'],['no','不可']],value===true?'yes':value===false?'no':'',id=>{
+        const patch={...current,[key]:id==='yes'?true:id==='no'?false:undefined,slotsEdited:true};
+        patch.available=patch.morning===true||patch.afternoon===true?true:patch.morning===false&&patch.afternoon===false?false:undefined;
+        markOffer(state.guardianId,session['予定ID'],patch);state.openSessions.add(session['予定ID']);render();
+      },`${dateLabel(session['日付'])}の当番可否 ${label}`));
+    }
+    wrap.append(el('p','両方可能な場合は、午前・午後をそれぞれ「可能」にしてください。未回答は不可と区別します。','muted'));
+    if(state.offers.has(offerKey(state.guardianId,session['予定ID'])))wrap.append(button('この当番回答の変更を取消',()=>{state.offers.delete(offerKey(state.guardianId,session['予定ID']));render();}));
     const note = document.createElement('input'); note.type = 'text'; note.disabled = state.busy; note.placeholder = '当番に関するメモ（任意）'; note.value = offerValue(state.guardianId, session['予定ID'])['メモ'] || '';
     note.addEventListener('input', () => markOffer(state.guardianId, session['予定ID'], { 'メモ': note.value })); wrap.append(note); return wrap;
   }
@@ -182,7 +192,7 @@
     let result;
     try {
       const attendance = [...state.attendance.entries()].map(([key, row]) => { const [memberId, sessionId] = key.split('|'); return { memberId, sessionId, morning: row.morning === undefined ? null : row.morning, afternoon: row.afternoon === undefined ? null : row.afternoon, note: row['連絡事項'] || '', guardianId: state.guardianId }; });
-      const dutyOffers = [...state.offers.entries()].map(([key, row]) => { const [guardianId, sessionId] = key.split('|'); return { guardianId, sessionId, available: row.available === undefined ? null : row.available, note: row['メモ'] || '' }; });
+      const dutyOffers = [...state.offers.entries()].map(([key, row]) => { const [guardianId, sessionId] = key.split('|'); return { guardianId, sessionId, available: row.available === undefined ? null : row.available, ...(row.slotsEdited?{morning:row.morning===undefined?null:row.morning,afternoon:row.afternoon===undefined?null:row.afternoon}:{}), note: row['メモ'] || '' }; });
       await api.request('save_parent_month', { attendance, dutyOffers });
       state.savedDrafts = true;
       try { await load(); result = ['saved', '保存しました。']; }

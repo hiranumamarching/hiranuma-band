@@ -559,6 +559,12 @@
     wrap.append(field('緊急連絡先（管理者のみ表示）', row['緊急連絡先'], v => set('緊急連絡先', v)), check('施設使用申請済（確認用・公開の必須条件には含めない）', row['施設使用申請済'], v => set('施設使用申請済', v)), field('実施報告（管理者のみ表示）', row['実施報告'], v => set('実施報告', v), 'textarea'), status);
     wrap.append(button('当番を割り当てる', () => { tab = 'plan'; render(); })); refresh(); return wrap;
   }
+  function dutyOfferLabel(guardianId,sessionId) {
+    const row=data.dutyOffers.find(r=>r['保護者ID']===guardianId&&r['予定ID']===sessionId);if(!row)return '未回答';
+    const label=v=>v===true||v==='true'?'可':v===false||v==='false'?'不可':'未回答';
+    if([row['午前可否'],row['午後可否']].every(v=>v===undefined||v===''))return row['可否']===true||row['可否']==='true'?'可・時間帯未指定':row['可否']===false||row['可否']==='false'?'不可・時間帯未指定':'未回答';
+    return `午前${label(row['午前可否'])}／午後${label(row['午後可否'])}`;
+  }
   function renderDuty() {
     if (!requireMonth()) return;
     const panel = $('panel'); const summary = el('section', undefined, 'card'); summary.append(el('h2', '家庭の入力状況'));
@@ -569,12 +575,12 @@
       let answered = 0, offered = 0; const expected = (members.length + (representative ? 1 : 0)) * monthSessions.length;
       for (const s of monthSessions) {
         answered += members.filter(m => data.attendance.some(a => a['予定ID'] === s['予定ID'] && a['子どもID'] === m['子どもID'] && slots(s).filter(([slot]) => s[`実施有無_${slot}`] !== 'なし').every(([slot]) => a[slot === 'am' ? '午前' : '午後'] !== '' && a[slot === 'am' ? '午前' : '午後'] !== undefined))).length;
-        if (representative && data.dutyOffers.some(d => d['予定ID'] === s['予定ID'] && d['保護者ID'] === representative['保護者ID'] && d['可否'] !== '' && d['可否'] !== undefined)) answered++;
+        if (representative && data.dutyOffers.some(d => d['予定ID'] === s['予定ID'] && d['保護者ID'] === representative['保護者ID'] && ['午前可否','午後可否'].every(key=>typeof d[key]==='boolean'))) answered++;
         if (representative && data.dutyOffers.some(d => d['予定ID'] === s['予定ID'] && d['保護者ID'] === representative['保護者ID'] && bool(d['可否']))) offered++;
       }
       const tr = el('tr'); tr.append(el('td', household['家庭名']), el('td', expected === 0 ? '対象なし' : `${answered === 0 ? '未入力' : answered === expected ? '入力済' : '一部入力'} ${answered}/${expected}`), el('td', `${offered}/${monthSessions.length}日`)); body.append(tr);
     }
-    table.append(body); summary.append(table, el('p', '子ども全員の出席回答と、家庭ごとの当番可否がそろうと入力済です。', 'muted')); panel.append(summary);
+    table.append(body); summary.append(table, el('p', '子ども全員の出席回答と、家庭ごとの当番可否（午前・午後）がそろうと入力済です。時間帯未指定の旧回答は確認が必要です。', 'muted')); panel.append(summary);
     for (const s of monthSessions) panel.append(dutyCard(s));
   }
   function dutyCard(s) {
@@ -583,11 +589,12 @@
     const isEvent = s['種別'] === '本番';
     card.append(el('p', isEvent ? `出席予定：終日${attendance.filter(a => bool(a['午前'])).length}名` : `出席予定：午前${attendance.filter(a => bool(a['午前'])).length}名 ／ 午後${attendance.filter(a => bool(a['午後'])).length}名`));
     const available = active('guardians').filter(g => data.dutyOffers.some(d => d['予定ID'] === s['予定ID'] && d['保護者ID'] === g['保護者ID'] && bool(d['可否'])));
-    card.append(el('p', `当番可：${available.map(g => g['表示名']).join('、') || 'まだいません'}`));
+    card.append(el('p', `当番可：${available.map(g => `${g['表示名']}（${dutyOfferLabel(g['保護者ID'],s['予定ID'])}）`).join('、') || 'まだいません'}`));
     const notes = el('details'); notes.append(el('summary', '家庭からの連絡事項（管理者のみ）'));
     for (const a of attendance.filter(a => a['連絡事項'])) { const member = data.masters.members.find(m => m['子どもID'] === a['子どもID']); notes.append(el('p', `${member?.['氏名'] || '退籍メンバー'}：${a['連絡事項']}`, 'note')); }
     for (const d of data.dutyOffers.filter(d => d['予定ID'] === s['予定ID'] && d['メモ'])) { const guardian = data.masters.guardians.find(g => g['保護者ID'] === d['保護者ID']); notes.append(el('p', `${guardian?.['表示名'] || '退籍保護者'}：${d['メモ']}`, 'note')); }
     card.append(notes);
+    const offerSummary=el('details');offerSummary.append(el('summary','当番可否・午前午後の回答'));active('guardians').forEach(g=>offerSummary.append(el('p',`${g['表示名']}：${dutyOfferLabel(g['保護者ID'],s['予定ID'])}`)));card.append(offerSummary);
     const allRoles = [...new Set([...roles, ...data.dutyAssignments.filter(d => d['予定ID'] === s['予定ID']).map(d => d['役割'])])];
     const rolePicker = el('div'); let role = '当番'; let dutySlot = '午前';
     const renderRole = () => {
@@ -601,7 +608,7 @@
       rolePicker.append(pills(allRoles.map(r => [r, r]), role, r => { role = r; renderRole(); }, '当番の役割'));
       // Keep the original storage key while presenting one all-day event shift.
       rolePicker.append(pills(isEvent ? [['午前', '終日']] : [['午前', '午前'], ['午後', '午後']], dutySlot, value => { dutySlot = value; renderRole(); }, '当番の時間帯'));
-      const options = active('guardians').map(g => [g['保護者ID'], `${g['表示名']}${available.includes(g) ? '（可）' : '（要確認）'}`]);
+      const options = active('guardians').map(g => [g['保護者ID'], `${g['表示名']}（${dutyOfferLabel(g['保護者ID'],s['予定ID'])}）`]);
       const roleAssignments = data.dutyAssignments.filter(d => {
         if (d['予定ID'] !== s['予定ID'] || d['役割'] !== role || !d['保護者ID']) return false;
         if (isEvent) return true;

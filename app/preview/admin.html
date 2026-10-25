@@ -4,19 +4,30 @@
   <meta charset="utf-8">
   <meta name="robots" content="noindex,nofollow">
   <meta name="referrer" content="no-referrer">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <meta name="theme-color" content="#182477">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="平沼 運営">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="admin.webmanifest">
   <title>運営管理｜平沼マーチングバンド</title>
   <link rel="stylesheet" href="common.css?v=668325c3">
-  <script src="preview-api.js" defer></script>
+  <link rel="stylesheet" href="app-shell.css?v=local-20261025">
+  <script src="preview-api.js?v=local-duty-20261025" defer></script>
   <script src="preview-backup.js?v=20261024-export1" defer></script>
   <script src="shared.js" defer></script>
   <script src="practice-plan.js" defer></script>
   <script src="layout-mobile.js" defer></script>
-  <script src="admin.js?v=20261024-stage-import1" defer></script>
+  <script src="admin.js?v=local-duty-20261025" defer></script>
 </head>
-<body><aside class="card" aria-label="プレビューの説明"><strong>架空データ専用・操作確認プレビュー</strong><p>保存はこのブラウザーだけ。実名・連絡先は入力しないでください。「公開」もこの端末内の模擬操作です。実際の共有保存・認証は検証できません。</p><nav><a href="admin.html">管理者</a> ／ <a href="parent.html">保護者</a> ／ <a href="teacher.html">先生</a></nav><button type="button" id="preview-reset">架空データを初期状態に戻す</button></aside>
-  <header><div class="shell"><p class="eyebrow">平沼マーチングバンド · 管理者</p><h1>毎月の運営</h1></div></header>
+<body class="app-shell">
+  <header class="app-header"><div class="shell app-brand"><img src="icons/icon-192.png" width="48" height="48" alt="平沼マーチングバンド"><div><p class="eyebrow">平沼マーチングバンド</p><h1>運営管理</h1></div><span class="app-mode">プレビュー</span></div></header>
+  <aside class="card preview-notice" aria-label="プレビューの説明">
+    <p class="local-label">このブラウザー内に保存</p>
+    <details><summary>プレビューの説明・画面切替</summary><p>架空データ専用の操作確認用です。実名・連絡先は入力しないでください。「公開」も端末内の模擬操作で、共有保存・認証は検証できません。</p><p>ホーム画面から起動するとSafariとは保存領域が分かれる場合があります。入力済みデータは元のSafariで確認し、バックアップを保管してください。自動移行はしません。</p><nav aria-label="役割別プレビュー"><a href="admin.html">管理者</a> ／ <a href="parent.html">保護者</a> ／ <a href="teacher.html">先生</a></nav><button type="button" id="preview-reset">架空データを初期状態に戻す</button></details>
+  </aside>
   <main class="shell">
     <p id="message" role="status" aria-live="polite">読み込み中です…</p>
     <section id="connection" class="card" hidden>

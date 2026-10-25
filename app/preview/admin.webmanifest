@@ -1,0 +1,25 @@
+{
+  "id": "./admin.html",
+  "name": "平沼マーチング 運営管理（プレビュー）",
+  "short_name": "平沼 運営",
+  "start_url": "./admin.html",
+  "scope": "./",
+  "display": "standalone",
+  "lang": "ja",
+  "theme_color": "#182477",
+  "background_color": "#f6f7fb",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
