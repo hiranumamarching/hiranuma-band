@@ -3,7 +3,7 @@
   const api = BandAPI.create('k');
   const $ = id => document.getElementById(id);
   const state = { data: undefined, monthId: '', guardianId: '', tab: 'input', guideTab: 'duty', attendance: new Map(), offers: new Map(), busy: false, savedDrafts: false, saveFeedback: { kind: 'idle', text: '' }, cards: undefined, cardLoading: false, cardPerson: '', cardSession: '', openSessions: new Set() };
-  const tabs = [['input', '出欠・当番の回答'], ['share', 'みんなの予定'], ['guide', '当番・本番ガイド'], ['card', '個人カード']];
+  const tabs = [['input', '出欠・当番の回答'], ['share', '練習・本番日程'], ['guide', '当番・本番ガイド'], ['card', '個人カード']];
   const attendanceKey = (memberId, sessionId) => `${memberId}|${sessionId}`;
   const offerKey = (guardianId, sessionId) => `${guardianId}|${sessionId}`;
   const monthKey = value => String(value || '').trim().slice(0, 7);
@@ -52,7 +52,7 @@
   function render() {
     $('tabs').replaceChildren(...tabs.map(([id, label]) => button(label, () => { state.tab = id; render(); }, state.tab === id)));
     const panel = $('panel'); panel.replaceChildren();
-    if (state.tab === 'input') renderInput(panel); else if (state.tab === 'share') window.BandShared.render(panel, state.data, state.monthId); else if (state.tab === 'guide') renderGuide(panel); else renderCards(panel);
+    if (state.tab === 'input') renderInput(panel); else if (state.tab === 'share') { window.BandShared.render(panel, state.data, state.monthId); panel.prepend(el('h2', '練習・本番日程')); } else if (state.tab === 'guide') renderGuide(panel); else renderCards(panel);
   }
   function renderInput(panel) {
     const context = el('section', undefined, 'card parent-context');
