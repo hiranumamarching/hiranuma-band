@@ -27,7 +27,7 @@ function doGet(e) {
 function doPost(e) {
   try {
     const request = parsePostRequest_(e);
-    return jsonResponse_(['admin_bootstrap', 'teacher_bootstrap', 'parent_bootstrap', 'parent_card'].indexOf(request.action) >= 0 ? handleRead_(request) : handleWrite_(request));
+    return jsonResponse_(['admin_export_backup', 'admin_bootstrap', 'teacher_bootstrap', 'parent_bootstrap', 'parent_card'].indexOf(request.action) >= 0 ? handleRead_(request) : handleWrite_(request));
   } catch (error) {
     return jsonResponse_({ ok: false, error: apiErrorCode_(error), message: error.message });
   }
@@ -35,7 +35,7 @@ function doPost(e) {
 
 function handleRead_(request) {
   // 公開予定と当番の読み取り途中に下書き保存が割り込まないようにする。
-  return withWriteLock_(function() { return readAuthorized_(request); });
+  return withWriteLock_(function() { const result = readAuthorized_(request); result.data._revision = databaseRevision_(); result.data._protocol = 1; return result; });
 }
 
 function readAuthorized_(request) {
@@ -50,6 +50,9 @@ function readAuthorized_(request) {
     case 'teacher_bootstrap':
       requireRole_(auth, 'teacher');
       return { ok: true, data: teacherBootstrap_(auth) };
+    case 'admin_export_backup':
+      requireRole_(auth, 'admin');
+      return {ok:true,data:{backup:exportSharedBackup_()}};
     case 'admin_bootstrap':
       requireRole_(auth, 'admin');
       return { ok: true, data: adminBootstrap_() };
@@ -58,7 +61,7 @@ function readAuthorized_(request) {
   }
 }
 
-function handleWrite_(request) {
+function dispatchWrite_(request) {
   const auth = authorize_(request);
   switch (request.action) {
     case 'save_teacher_availability':
@@ -74,9 +77,12 @@ function handleWrite_(request) {
     case 'admin_save_selfpractice':
     case 'admin_save_duty_assignments':
     case 'admin_save_event':
+    case 'admin_save_instruments':
+    case 'admin_save_layouts':
     case 'admin_save_timeline_items':
     case 'admin_save_teacher_availability':
     case 'admin_save_place':
+    case 'admin_set_place_visibility':
     case 'admin_import_references':
     case 'admin_save_guide_items':
     case 'admin_save_annual_event_candidates':
@@ -96,10 +102,13 @@ function handleWrite_(request) {
 
 function parentBootstrap_(auth) {
   const householdId = auth.household['家庭ID'];
-  const members = readTable_('m_members').filter(function(row) {
+  const household = withoutKeys_(auth.household, ['招待トークン']);
+  const latestHousehold = latestRows_(readTable_('m_households'), function(row) { return row['家庭ID']; }).find(function(row) { return row['家庭ID'] === householdId; });
+  if (latestHousehold) household['家庭名'] = latestHousehold['家庭名'];
+  const members = latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }).filter(function(row) {
     return row['家庭ID'] === householdId && asBoolean_(row['在籍']);
   });
-  const guardians = readTable_('m_guardians').filter(function(row) {
+  const guardians = latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }).filter(function(row) {
     return row['家庭ID'] === householdId && asBoolean_(row['在籍']);
   });
   const sessions = publishedSessions_();
@@ -116,17 +125,22 @@ function parentBootstrap_(auth) {
   const ownDutyOffers = dutyLatest.filter(function(row) { return !!guardianIds[row['保護者ID']]; });
 
   return {
-    household: withoutKeys_(auth.household, ['招待トークン']),
+    performanceVersion: 2,
+    stageItems:teacherPublishedStage_(),
+    household: household,
     guardians: guardians,
     members: members,
     months: latestRows_(readTable_('months'), function(row) { return row['月ID']; }),
     sessions: sessions,
+    layouts: publicLayouts_(sessions),
+    daySchedule: publicDaySchedule_(sessions),
+    events: publicEventNames_(sessions),
     inputSessions: inputSessions,
     attendance: ownAttendance,
     dutyOffers: ownDutyOffers,
     attendanceCounts: attendanceCounts_(sessions),
     dutyAssignments: publicDutyAssignments_(sessions),
-    places: activePlaces_(),
+    places: placesForReferences_(sessions.concat(inputSessions), publicDaySchedule_(sessions)),
     teachers: publicTeachers_(),
     references: referenceSources_(false)
   };
@@ -134,16 +148,31 @@ function parentBootstrap_(auth) {
 
 function parentCard_(auth, sessionId) {
   const householdId = auth.household['家庭ID'];
-  const guardians = readTable_('m_guardians').filter(function(row) { return row['家庭ID'] === householdId; });
-  const members = readTable_('m_members').filter(function(row) { return row['家庭ID'] === householdId; });
+  const guardians = latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }).filter(function(row) { return row['家庭ID'] === householdId && asBoolean_(row['在籍']); });
+  const members = latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }).filter(function(row) { return row['家庭ID'] === householdId && asBoolean_(row['在籍']); });
   const allowedIds = {};
   guardians.forEach(function(row) { allowedIds[row['保護者ID']] = true; });
   members.forEach(function(row) { allowedIds[row['子どもID']] = true; });
-  const allowedSessions = indexBy_(publishedSessions_(), '予定ID');
+  const sessions = publishedSessions_().filter(function(row) { return row['種別'] === '本番' && (!sessionId || row['予定ID'] === sessionId); });
+  const allowedSessions = indexBy_(sessions, '予定ID');
   const items = latestRows_(readTable_('timeline_items'), function(item) { return item['項目ID']; }).filter(function(item) {
-    return asBoolean_(item['有効']) && !!allowedSessions[item['予定ID']] && (!sessionId || item['予定ID'] === sessionId) && hasAssignedId_(item['担当'], allowedIds);
-  }).sort(compareTimeline_);
-  return { guardians: guardians, members: members, timelineItems: items };
+    return asBoolean_(item['有効']) && !!allowedSessions[item['予定ID']] && hasAssignedId_(item['担当'], allowedIds);
+  }).sort(compareTimeline_).map(function(item) {
+    const row = {};
+    ['項目ID', '予定ID', '日区分', '時刻', '並び順', 'scope', '種別', '内容', '場所ID', '持ち物', '注意点'].forEach(function(key) { row[key] = item[key]; });
+    projectTimelinePlace_(item, row);
+    row['担当'] = String(item['担当'] || '').split(',').map(function(id) { return id.trim(); }).filter(function(id) { return allowedIds[id]; }).join(',');
+    return row;
+  });
+  const events = latestRows_(readTable_('events'), function(row) { return row['予定ID']; }).filter(function(row) { return !!allowedSessions[row['予定ID']]; }).map(function(event) {
+    const row = {}; ['予定ID', '本番名', '会場', '衣装', '子どもの持ち物', '全体連絡'].forEach(function(key) { row[key] = event[key]; }); return row;
+  });
+  return {
+    guardians: guardians.map(function(row) { return { '保護者ID': row['保護者ID'], '表示名': row['表示名'] }; }),
+    members: members.map(function(row) { return { '子どもID': row['子どもID'], '氏名': row['氏名'] }; }),
+    sessions: sessions, events: events, places: placesForReferences_(sessions, publicDaySchedule_(sessions).concat(items)), layouts: publicLayouts_(sessions), daySchedule: publicDaySchedule_(sessions), timelineItems: items,
+    stageItems: latestRows_(readTable_('timeline_items'), function(item) { return item['項目ID']; }).filter(function(item) { return asBoolean_(item['有効']) && allowedSessions[item['予定ID']] && item.scope === 'ステージ進行'; }).sort(compareStage_).map(function(item) { return publicStage_(item, allowedIds); })
+  };
 }
 
 function teacherBootstrap_(auth) {
@@ -156,10 +185,15 @@ function teacherBootstrap_(auth) {
     return row['先生ID'] + '|' + row['予定ID'] + '|' + row['枠'];
   }).filter(function(row) { return row['先生ID'] === auth.teacher['先生ID']; });
   return {
+    publishedEvents:publicEventNames_(publishedSessions_()),
+    publishedSessions:publishedSessions_(),
+    layouts:publicLayouts_(publishedSessions_()),
+    daySchedule:publicDaySchedule_(publishedSessions_()),
+    stageItems:teacherPublishedStage_(),
     teacher: withoutKeys_(auth.teacher, ['招待トークン']),
     months: months,
     sessions: sessions,
-    places: activePlaces_(),
+    places: placesForReferences_(sessions),
     availability: availability,
     now: new Date().toISOString()
   };
@@ -173,18 +207,22 @@ function adminBootstrap_() {
     guardians: latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }),
     members: latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }),
     teachers: teacherRows.map(function(row) { return withoutKeys_(row, ['招待トークン']); }),
-    places: activePlaces_()
+    places: allPlaces_()
   };
   return {
+    performanceVersion: 2,
+    instruments: instrumentRows_(),
     masters: masters,
     shared: sharedSchedule_(),
     months: latestRows_(readTable_('months'), function(row) { return row['月ID']; }),
     sessions: activeSessions_(),
     selfPractice: latestRows_(readTable_('session_selfpractice'), function(row) { return row['予定ID']; }),
+    teacherAssignmentConflicts: teacherAssignmentConflicts_(activeSessions_()),
     teacherAvailability: latestRows_(readTable_('teacher_availability'), function(row) { return row['先生ID'] + '|' + row['予定ID'] + '|' + row['枠']; }),
     attendance: latestRows_(readTable_('attendance'), function(row) { return row['子どもID'] + '|' + row['予定ID']; }),
     dutyOffers: latestRows_(readTable_('duty_offers'), function(row) { return row['保護者ID'] + '|' + row['予定ID']; }),
     dutyAssignments: dutyAssignments_(),
+    layouts: layoutRows_(),
     events: latestRows_(readTable_('events'), function(row) { return row['予定ID']; }),
     timelineItems: latestRows_(readTable_('timeline_items'), function(row) { return row['項目ID']; }).filter(function(row) { return asBoolean_(row['有効']); }),
     invites: {
@@ -218,37 +256,47 @@ function saveTeacherAvailability_(auth, request) {
 }
 
 function saveParentMonth_(auth, request) {
+  return withWriteLock_(function() {
   const attendanceRows = Array.isArray(request.attendance) ? request.attendance : [];
   const dutyRows = Array.isArray(request.dutyOffers) ? request.dutyOffers : [];
+  if(dutyRows.length){const sheet=getDatabase_().getSheetByName('duty_offers');const headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];if(!headers.includes('午前可否')||!headers.includes('午後可否'))throw apiError_(API_ERROR.NOT_CONFIGURED,'当番時間帯の保存列の更新が必要です。');}
   if (!attendanceRows.length && !dutyRows.length) throw apiError_(API_ERROR.INVALID_REQUEST, '送信する入力がありません。');
   const householdId = auth.household['家庭ID'];
-  const memberMap = indexBy_(readTable_('m_members').filter(function(row) { return row['家庭ID'] === householdId; }), '子どもID');
-  const guardianMap = indexBy_(readTable_('m_guardians').filter(function(row) { return row['家庭ID'] === householdId; }), '保護者ID');
+  const memberMap = indexBy_(latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }).filter(function(row) { return row['家庭ID'] === householdId && asBoolean_(row['在籍']); }), '子どもID');
+  const guardianMap = indexBy_(latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }).filter(function(row) { return row['家庭ID'] === householdId && asBoolean_(row['在籍']); }), '保護者ID');
   const sessions = indexBy_(activeSessions_(), '予定ID');
   const months = indexBy_(latestRows_(readTable_('months'), function(row) { return row['月ID']; }), '月ID');
   const fallbackGuardianId = Object.keys(guardianMap)[0] || '';
+  const priorAttendance = keyedRows_(latestRows_(readTable_('attendance'), function(row) { return row['子どもID'] + '|' + row['予定ID']; }), function(row) { return row['子どもID'] + '|' + row['予定ID']; });
+  const priorOffers = keyedRows_(latestRows_(readTable_('duty_offers'), function(row) { return row['保護者ID'] + '|' + row['予定ID']; }), function(row) { return row['保護者ID'] + '|' + row['予定ID']; });
   const attendance = attendanceRows.map(function(row) {
     const session = sessions[row.sessionId];
     if (!memberMap[row.memberId] || !session) throw apiError_(API_ERROR.FORBIDDEN, 'この家庭では送信できない子どもまたは予定です。');
     ensureDeadlineOpen_(months[session['月ID']], '保護者入力締切');
     const guardianId = row.guardianId || fallbackGuardianId;
     if (!guardianMap[guardianId]) throw apiError_(API_ERROR.FORBIDDEN, '入力者がこの家庭に属していません。');
-    const amOpen = session['種別'] === '本番' || session['実施有無_am'] !== 'なし';
+    const amOpen = session['実施有無_am'] !== 'なし';
     const pmOpen = session['種別'] !== '本番' && session['実施有無_pm'] !== 'なし';
     if ((!amOpen && asBoolean_(row.morning)) || (!pmOpen && asBoolean_(row.afternoon))) throw apiError_(API_ERROR.INVALID_REQUEST, '実施しない枠には出席を送信できません。');
-    return { '子どもID': row.memberId, '予定ID': row.sessionId, '午前': amOpen && asBoolean_(row.morning), '午後': pmOpen && asBoolean_(row.afternoon), '連絡事項': String(row.note || ''), '入力者': guardianId, '送信時刻': new Date() };
+    const prior = priorAttendance[row.memberId + '|' + row.sessionId] || {};
+    return { '子どもID': row.memberId, '予定ID': row.sessionId, '午前': amOpen ? partialAnswer_(row, 'morning', prior['午前']) : '', '午後': pmOpen ? partialAnswer_(row, 'afternoon', prior['午後']) : '', '連絡事項': row.note === undefined ? prior['連絡事項'] || '' : String(row.note || ''), '入力者': guardianId, '送信時刻': new Date() };
   });
   const offers = dutyRows.map(function(row) {
     const session = sessions[row.sessionId];
     if (!session || !fallbackGuardianId || (row.guardianId && row.guardianId !== fallbackGuardianId)) throw apiError_(API_ERROR.FORBIDDEN, 'この家庭では送信できない当番可否です。');
     ensureDeadlineOpen_(months[session['月ID']], '保護者入力締切');
-    return { '保護者ID': fallbackGuardianId, '予定ID': row.sessionId, '可否': asBoolean_(row.available), 'メモ': String(row.note || ''), '送信時刻': new Date() };
+    const prior=priorOffers[fallbackGuardianId+'|'+row.sessionId]||{};
+    const touched=row.morning!==undefined||row.afternoon!==undefined;
+    if(!touched && (typeof prior['午前可否']==='boolean'||typeof prior['午後可否']==='boolean') && row.available!==undefined && partialAnswer_(row,'available',prior['可否'])!==prior['可否'])throw apiError_(API_ERROR.INVALID_REQUEST,'午前・午後を指定できる画面で回答してください。');
+    for(const key of ['morning','afternoon'])if(row[key]!==undefined&&row[key]!==null&&typeof row[key]!=='boolean')throw apiError_(API_ERROR.INVALID_REQUEST,'当番の午前・午後は可能/不可/未回答で指定してください。');
+    const morning=partialAnswer_(row,'morning',prior['午前可否']);const afternoon=partialAnswer_(row,'afternoon',prior['午後可否']);
+    const available=touched?(morning===true||afternoon===true?true:morning===false&&afternoon===false?false:''):partialAnswer_(row,'available',prior['可否']);
+    return { '保護者ID': fallbackGuardianId, '予定ID': row.sessionId, '可否': available, '午前可否':morning, '午後可否':afternoon, 'メモ': row.note === undefined ? (priorOffers[fallbackGuardianId + '|' + row.sessionId] || {})['メモ'] || '' : String(row.note || ''), '送信時刻': new Date() };
   });
-  withWriteLock_(function() {
     if (attendance.length) appendObjects_('attendance', attendance);
     if (offers.length) appendObjects_('duty_offers', offers);
-  });
   return { attendanceSaved: attendance.length, dutyOffersSaved: offers.length };
+  });
 }
 
 function saveAdmin_(request) {
@@ -267,12 +315,18 @@ function saveAdmin_(request) {
       return adminSaveDutyAssignments_(request.records || []);
     case 'admin_save_event':
       return adminAppend_(request.records || [], 'events', ['予定ID', '本番名']);
+    case 'admin_save_instruments':
+      return adminSaveInstruments_(request.records || []);
+    case 'admin_save_layouts':
+      return adminSaveLayouts_(request.records || []);
     case 'admin_save_timeline_items':
       return adminSaveTimelineItems_(request.records || []);
     case 'admin_save_teacher_availability':
       return adminSaveTeacherAvailability_(request.records || []);
     case 'admin_save_place':
       return adminSavePlace_(request);
+    case 'admin_set_place_visibility':
+      return adminSetPlaceVisibility_(request);
     case 'admin_import_references':
       return adminImportReferences_();
     case 'admin_save_guide_items':
@@ -326,10 +380,29 @@ function adminSavePlace_(request) {
   if (!name || name.length > 80) throw apiError_(API_ERROR.INVALID_REQUEST, '場所名は1〜80文字で入力してください。');
   return withWriteLock_(function() {
     const all = latestRows_(readTable_('m_places'), function(row) { return row['場所ID']; });
-    if (activePlaces_().some(function(row) { return row['名称'] === name; })) throw apiError_(API_ERROR.INVALID_REQUEST, '同じ場所が既にあります。');
+    if (all.some(function(row) { return row['名称'] === name && placeIsVisible_(row); })) throw apiError_(API_ERROR.INVALID_REQUEST, '同じ場所が既にあります。');
+    if (all.some(function(row) { return row['名称'] === name; })) throw apiError_(API_ERROR.INVALID_REQUEST, '非表示の同名の場所があります。場所一覧から復元してください。');
     const numbers = all.map(function(row) { const match = String(row['場所ID']).match(/^P(\d+)$/); return match ? Number(match[1]) : 0; });
     const orders = all.map(function(row) { return Number(row['並び順']) || 0; });
     const row = { '場所ID': 'P' + String(Math.max.apply(null, [0].concat(numbers)) + 1).padStart(3, '0'), '名称': name, '並び順': Math.max.apply(null, [0].concat(orders)) + 1, '有効': true };
+    appendObjects_('m_places', [row]);
+    return { place: row };
+  });
+}
+
+// 場所の削除ではなく、同じIDの表示状態だけを履歴として追記する。
+function adminSetPlaceVisibility_(request) {
+  if (typeof request.visible !== 'boolean') throw apiError_(API_ERROR.INVALID_REQUEST, '表示状態は true または false で指定してください。');
+  const placeId = String(request.placeId || '').trim();
+  return withWriteLock_(function() {
+    const all = allPlaces_();
+    const prior = all.find(function(row) { return row['場所ID'] === placeId; });
+    if (!prior) throw apiError_(API_ERROR.INVALID_REQUEST, '場所が見つかりません。');
+    if (placeIsVisible_(prior) === request.visible) return { place: prior };
+    if (request.visible && all.some(function(row) { return row['場所ID'] !== placeId && row['名称'] === prior['名称'] && placeIsVisible_(row); })) {
+      throw apiError_(API_ERROR.INVALID_REQUEST, '同じ名前の表示中の場所があります。復元できません。');
+    }
+    const row = copyObject_(prior); row['有効'] = request.visible;
     appendObjects_('m_places', [row]);
     return { place: row };
   });
@@ -370,7 +443,7 @@ function adminSaveMembers_(records) {
     const rows = records.map(function(record) {
       const id = String(record['子どもID'] || '').trim(); const householdId = String(record['家庭ID'] || '').trim(); const active = asBoolean_(record['在籍']); const name = String(record['氏名'] || '').trim();
       if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || !households[householdId] || (active && !name)) throw apiError_(API_ERROR.INVALID_REQUEST, 'お子さまの家庭または氏名が不正です。');
-      return { '子どもID': id, '家庭ID': householdId, '氏名': name, '基本担当楽器': String(record['基本担当楽器'] || '').trim(), '在籍': active, '学年': String(record['学年'] || '').trim() };
+      return { '子どもID': id, '家庭ID': householdId, '氏名': name, '基本担当楽器': instrumentText_(record['基本担当楽器'] === undefined ? (latestRows_(readTable_('m_members'), function(r) { return r['子どもID']; }).find(function(r) { return r['子どもID'] === id; }) || {})['基本担当楽器'] || '' : record['基本担当楽器']), '在籍': active, '学年': String(record['学年'] || '').trim() };
     });
     appendObjects_('m_members', rows); return { saved: rows.length };
   });
@@ -412,13 +485,13 @@ function adminSaveRoster_(records) {
         nextGuardians[guardianId] = { '保護者ID': guardianId, '家庭ID': householdId, '表示名': guardianName, '対応可能な役割': String(record.guardianRoles || '').trim(), '在籍': true };
         guardianByName[householdId + '|' + guardianName] = guardianId;
       }
-      [[childNames[0], String(record.child1Grade || '').trim(), record.child1Id], [childNames[1], String(record.child2Grade || '').trim(), record.child2Id]].forEach(function(child) {
+      [[childNames[0], String(record.child1Grade || '').trim(), record.child1Id, record.child1Instrument], [childNames[1], String(record.child2Grade || '').trim(), record.child2Id, record.child2Instrument]].forEach(function(child) {
         if (!child[0]) return;
         let memberId = String(child[2] || '').trim();
         if (!members[memberId] && !nextMembers[memberId]) memberId = memberByName[householdId + '|' + child[0]] || memberId;
         if (!memberId) memberId = 'M-' + Utilities.getUuid();
         const previousMember = members[memberId] || nextMembers[memberId] || {};
-        nextMembers[memberId] = { '子どもID': memberId, '家庭ID': householdId, '氏名': child[0], '基本担当楽器': previousMember['基本担当楽器'] || '', '在籍': true, '学年': child[1] };
+        nextMembers[memberId] = { '子どもID': memberId, '家庭ID': householdId, '氏名': child[0], '基本担当楽器': instrumentText_(child[3] === undefined ? previousMember['基本担当楽器'] || '' : child[3]), '在籍': true, '学年': child[1] };
         memberByName[householdId + '|' + child[0]] = memberId;
       });
     });
@@ -450,7 +523,7 @@ function adminCreateMonth_(request) {
     const monthId = validMonthId_(request.monthId);
     const existing = latestRows_(readTable_('months'), function(row) { return row['月ID']; });
     if (indexBy_(existing, '月ID')[monthId]) throw apiError_(API_ERROR.INVALID_REQUEST, '対象月は既に存在します。');
-    const sessions = createSaturdaySessions_(monthId, request.copyFromMonthId || '');
+    const sessions = request.generateSaturdays === false ? [] : createSaturdaySessions_(monthId, request.copyFromMonthId || '');
     validateDeadline_(request.teacherDeadline); validateDeadline_(request.parentDeadline);
     ensureSessionsSchema_();
     appendObjects_('sessions', sessions);
@@ -498,7 +571,14 @@ function adminAppend_(records, sheetName, requiredKeys) {
   records.forEach(function(record) {
     requiredKeys.forEach(function(key) { if (record[key] === undefined || record[key] === '') throw apiError_(API_ERROR.INVALID_REQUEST, key + ' は必須です。'); });
   });
-  withWriteLock_(function() { appendObjects_(sheetName, records); });
+  withWriteLock_(function() {
+    if (sheetName === 'events') {
+      const sessions = indexBy_(activeSessions_(), '予定ID');
+      records.forEach(function(row) { if (!sessions[row['予定ID']] || sessions[row['予定ID']]['種別'] !== '本番') throw apiError_(API_ERROR.INVALID_REQUEST, '本番予定を選んでください。'); });
+      unpublishSessions_(records.map(function(row) { return row['予定ID']; }));
+    }
+    appendObjects_(sheetName, records);
+  });
   return { saved: records.length, sheet: sheetName };
 }
 
@@ -507,9 +587,11 @@ function adminSaveTimelineItems_(records) {
     if (!Array.isArray(records) || !records.length) throw apiError_(API_ERROR.INVALID_REQUEST, '保存する進行項目がありません。');
     ensureTimelineSchema_();
     const eventSessions = indexBy_(activeSessions_().filter(function(row) { return row['種別'] === '本番'; }), '予定ID');
+    const previousItems = indexBy_(latestRows_(readTable_('timeline_items'), function(row) { return row['項目ID']; }), '項目ID');
     const validScopes = ['当日進行', 'ステージ進行'];
     const validDays = ['前日', '当日'];
     const rows = records.map(function(record) {
+      assertKnownKeys_(record, BAND_DB_SCHEMA.timeline_items);
       const row = {};
       BAND_DB_SCHEMA.timeline_items.forEach(function(key) { row[key] = record[key] === undefined ? '' : record[key]; });
       row['項目ID'] = String(row['項目ID']).trim();
@@ -520,14 +602,19 @@ function adminSaveTimelineItems_(records) {
       row['内容'] = String(row['内容']).trim();
       row['時刻'] = String(row['時刻']).trim();
       row['並び順'] = Number(row['並び順']) || 0;
+      row.stageJSON = JSON.stringify(normalizeStage_(record.stageJSON === undefined ? (previousItems[row['項目ID']] || {}).stageJSON : record.stageJSON, row['予定ID']));
       row['有効'] = row['有効'] === false || row['有効'] === 'false' ? false : true;
       if (!row['項目ID'] || !row['予定ID']) throw apiError_(API_ERROR.INVALID_REQUEST, '進行項目IDと予定IDが必要です。');
       if (!eventSessions[row['予定ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '本番予定を選んでください。');
       if (validDays.indexOf(row['日区分']) < 0 || validScopes.indexOf(row.scope) < 0) throw apiError_(API_ERROR.INVALID_REQUEST, '進行項目の区分が不正です。');
       if (row['有効'] && !row['内容']) throw apiError_(API_ERROR.INVALID_REQUEST, '進行内容を入力してください。');
       if (row['時刻'] && !/^([01]\d|2[0-3]):[0-5]\d$/.test(row['時刻'])) throw apiError_(API_ERROR.INVALID_REQUEST, '時刻はHH:MMで入力してください。');
+      row['場所ID'] = String(row['場所ID'] || '').trim();
+      const prior = previousItems[row['項目ID']];
+      if (row['有効']) validatePlaceReference_(row['場所ID'], prior && prior['予定ID'] === row['予定ID'] ? prior['場所ID'] : '', false, '進行の場所');
       return row;
     });
+    unpublishSessions_(rows.map(function(row) { return row['予定ID']; }));
     appendObjects_('timeline_items', rows);
     return { saved: rows.length };
   });
@@ -552,10 +639,10 @@ function selfPracticeMissingItems_(sessions) {
   const selfPractice = indexBy_(latestRows_(readTable_('session_selfpractice'), function(row) { return row['予定ID']; }), '予定ID');
   const assignments = dutyAssignments_();
   const missing = [];
-  sessions.filter(function(session) { return session.staffing_am === '自主練' || (session['種別'] !== '本番' && session.staffing_pm === '自主練'); }).forEach(function(session) {
+  sessions.filter(function(session) { return session['種別'] !== '本番' && (session.staffing_am === '自主練' || session.staffing_pm === '自主練'); }).forEach(function(session) {
     const checklist = selfPractice[session['予定ID']] || {};
-    const fields = [['鍵の担当', '鍵の担当'], ['中止判断者', '中止判断者'], ['緊急連絡先', '緊急連絡先']];
-    const guardians = indexBy_(readTable_('m_guardians').filter(function(row) { return asBoolean_(row['在籍']); }), '保護者ID');
+    const fields = [['緊急連絡先', '緊急連絡先']];
+    const guardians = indexBy_(latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }).filter(function(row) { return asBoolean_(row['在籍']); }), '保護者ID');
     fields.forEach(function(field) {
       const value = checklist[field[0]];
       if (!String(value || '').trim() || (field[0] !== '緊急連絡先' && !guardians[value])) missing.push(session['日付'] + ' ' + field[1]);
@@ -603,11 +690,11 @@ function authorize_(request) {
   const adminToken = PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN');
   if (request.a && adminToken && String(request.a) === adminToken) return { role: 'admin' };
   if (request.k) {
-    const household = readTable_('m_households').filter(function(row) { return String(row['招待トークン']) === String(request.k) && asBoolean_(row['在籍']); })[0];
+    const household = latestRows_(readTable_('m_households'), function(row) { return row['家庭ID']; }).filter(function(row) { return String(row['招待トークン']) === String(request.k) && asBoolean_(row['在籍']); })[0];
     if (household) return { role: 'parent', household: household };
   }
   if (request.t) {
-    const teacher = readTable_('m_teachers').filter(function(row) { return String(row['招待トークン']) === String(request.t) && asBoolean_(row['在籍']); })[0];
+    const teacher = latestRows_(readTable_('m_teachers'), function(row) { return row['先生ID']; }).filter(function(row) { return String(row['招待トークン']) === String(request.t) && asBoolean_(row['在籍']); })[0];
     if (teacher) return { role: 'teacher', teacher: teacher };
   }
   throw apiError_(API_ERROR.UNAUTHORIZED, '招待URLが無効です。');
@@ -648,10 +735,12 @@ function ensureDeadlineOpen_(month, columnName) {
   if (deadline && new Date(/^\d{4}-\d{2}-\d{2}$/.test(deadline) ? deadline + 'T23:59:59+09:00' : deadline).getTime() < Date.now()) throw apiError_(API_ERROR.DEADLINE_CLOSED, columnName + 'を過ぎています。');
 }
 
+let writeLockDepth_ = 0;
 function withWriteLock_(callback) {
+  if (writeLockDepth_) return callback();
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) throw apiError_(API_ERROR.INVALID_REQUEST, '混み合っています。少し待って再送してください。');
-  try { return callback(); } finally { lock.releaseLock(); }
+  try { writeLockDepth_++; return callback(); } finally { writeLockDepth_--; lock.releaseLock(); }
 }
 
 function latestRows_(rows, keyFunction) {
@@ -684,9 +773,9 @@ function hasAssignedId_(assigned, allowedIds) {
 
 function compareTimeline_(left, right) {
   const dayOrder = { '前日': 0, '当日': 1 };
-  const day = (dayOrder[left['日区分']] || 9) - (dayOrder[right['日区分']] || 9);
+  const day = (dayOrder[left['日区分']] === undefined ? 9 : dayOrder[left['日区分']]) - (dayOrder[right['日区分']] === undefined ? 9 : dayOrder[right['日区分']]);
   if (day) return day;
-  const time = String(left['時刻']).localeCompare(String(right['時刻']));
+  const time = String(left['時刻'] || '99:99').localeCompare(String(right['時刻'] || '99:99'));
   if (time) return time;
   return Number(left['並び順'] || 0) - Number(right['並び順'] || 0);
 }
@@ -741,15 +830,61 @@ function publicTeachers_() {
   return readTable_('m_teachers').map(function(row) { return { '先生ID': row['先生ID'], '氏名': row['氏名'] }; });
 }
 
+function placeIsVisible_(row) {
+  return row['有効'] === undefined || row['有効'] === '' || asBoolean_(row['有効']);
+}
+
+function allPlaces_() {
+  return latestRows_(readTable_('m_places'), function(row) { return row['場所ID']; }).sort(function(a, b) {
+    return (Number(a['並び順']) || 0) - (Number(b['並び順']) || 0);
+  });
+}
+
 function activePlaces_() {
-  return latestRows_(readTable_('m_places'), function(row) { return row['場所ID']; }).filter(function(row) {
-    return row['有効'] === undefined || row['有効'] === '' || asBoolean_(row['有効']);
-  }).sort(function(a, b) { return (Number(a['並び順']) || 0) - (Number(b['並び順']) || 0); });
+  return allPlaces_().filter(placeIsVisible_);
+}
+
+// 新規候補は表示中のみ。保存済みの参照名は、非表示にしても各画面で解決できる。
+function placesForReferences_(sessions, items) {
+  const referenced = new Set();
+  (sessions || []).forEach(function(row) { ['場所ID', '集合場所ID'].forEach(function(key) { if (row[key]) referenced.add(row[key]); }); });
+  (items || []).forEach(function(row) { if (row['場所ID']) referenced.add(row['場所ID']); });
+  return allPlaces_().filter(function(row) { return placeIsVisible_(row) || referenced.has(row['場所ID']); });
+}
+
+function validatePlaceReference_(placeId, priorPlaceId, required, label) {
+  if (!placeId && !required) return;
+  const places = allPlaces_();
+  const place = places.find(function(row) { return row['場所ID'] === placeId; });
+  if (place && (placeIsVisible_(place) || placeId === priorPlaceId)) return;
+  if (place && !placeIsVisible_(place)) throw apiError_(API_ERROR.INVALID_REQUEST, label + 'は非表示のため新しく選べません。場所一覧から復元してください。');
+  if (!places.some(placeIsVisible_)) throw apiError_(API_ERROR.INVALID_REQUEST, '表示中の場所がありません。場所を追加または復元してください。');
+  throw apiError_(API_ERROR.INVALID_REQUEST, label + 'を選んでください。');
 }
 
 function sharedSchedule_() {
   const sessions = publishedSessions_();
-  return { sessions: sessions, dutyAssignments: publicDutyAssignments_(sessions), attendanceCounts: attendanceCounts_(sessions), places: activePlaces_(), teachers: publicTeachers_() };
+  return { sessions: sessions, layouts: publicLayouts_(sessions), daySchedule: publicDaySchedule_(sessions), events: publicEventNames_(sessions), dutyAssignments: publicDutyAssignments_(sessions), attendanceCounts: attendanceCounts_(sessions), places: placesForReferences_(sessions, publicDaySchedule_(sessions)), teachers: publicTeachers_() };
+}
+
+function publicEventNames_(sessions) {
+  const sessionIds = new Set(sessions.filter(function(row) { return row['種別'] === '本番' && row['確定状態'] === '公開'; }).map(function(row) { return row['予定ID']; }));
+  return latestRows_(readTable_('events'), function(row) { return row['予定ID']; }).filter(function(row) { return sessionIds.has(row['予定ID']); }).map(function(row) {
+    return { '予定ID': row['予定ID'], '本番名': row['本番名'] };
+  });
+}
+
+// 全体の当日予定だけを公開。個人担当・注意点・連絡先はこの経路に含めない。
+function publicDaySchedule_(sessions) {
+  const sessionIds = new Set(sessions.filter(function(row) { return row['種別'] === '本番' && row['確定状態'] === '公開'; }).map(function(row) { return row['予定ID']; }));
+  return latestRows_(readTable_('timeline_items'), function(row) { return row['項目ID']; }).filter(function(row) {
+    return sessionIds.has(row['予定ID']) && asBoolean_(row['有効']) && row.scope !== 'ステージ進行';
+  }).sort(compareTimeline_).map(function(item) {
+    const row = {};
+    ['項目ID', '予定ID', '日区分', '時刻', '並び順', '種別', '内容', '場所ID'].forEach(function(key) { row[key] = item[key]; });
+    projectTimelinePlace_(item, row);
+    return row;
+  });
 }
 
 /**
@@ -900,7 +1035,11 @@ function validDate_(value) {
 
 function cleanSession_(record) {
   const row = {};
-  BAND_DB_SCHEMA.sessions.forEach(function(key) { row[key] = String(record[key] === undefined ? '' : record[key]).trim(); });
+  const prior = indexBy_(activeSessions_(), '予定ID')[String(record['予定ID'] || '').trim()] || {};
+  BAND_DB_SCHEMA.sessions.forEach(function(key) {
+    const value = record[key] === undefined && key === '集合場所ID' ? (prior[key] || '') : record[key];
+    row[key] = String(value === undefined ? '' : value).trim();
+  });
   if (!/^[A-Za-z0-9_-]{1,80}$/.test(row['予定ID'])) throw apiError_(API_ERROR.INVALID_REQUEST, '予定IDが不正です。');
   validMonthId_(row['月ID']);
   if (!indexBy_(latestRows_(readTable_('months'), function(item) { return item['月ID']; }), '月ID')[row['月ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '対象月がありません。');
@@ -927,9 +1066,11 @@ function cleanSession_(record) {
     if (row[staffing] !== '先生あり') row[teacher] = '';
   });
   const times = ['集合', '開始', '終了', '解散'].map(function(key) { return row[key]; });
-  times.forEach(function(time) { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw apiError_(API_ERROR.INVALID_REQUEST, '集合・開始・終了・解散時刻を指定してください。'); });
-  if (times.join('|') !== times.slice().sort().join('|')) throw apiError_(API_ERROR.INVALID_REQUEST, '集合→開始→終了→解散の順に指定してください。');
-  if (!indexBy_(activePlaces_(), '場所ID')[row['場所ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '場所を選んでください。');
+  const knownTimes = row['種別'] === '本番' ? times.filter(function(time) { return time !== ''; }) : times;
+  knownTimes.forEach(function(time) { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw apiError_(API_ERROR.INVALID_REQUEST, '集合・開始・終了・解散時刻を指定してください。'); });
+  if (knownTimes.join('|') !== knownTimes.slice().sort().join('|')) throw apiError_(API_ERROR.INVALID_REQUEST, '集合→開始→終了→解散の順に指定してください。');
+  validatePlaceReference_(row['場所ID'], prior['場所ID'], true, row['種別'] === '通常練習' ? '練習場所' : '場所');
+  validatePlaceReference_(row['集合場所ID'], prior['集合場所ID'], false, '集合場所');
   return row;
 }
 
@@ -948,6 +1089,7 @@ function ensureMembersSchema_() {
 function ensureTimelineSchema_() {
   const sheet = getDatabase_().getSheetByName('timeline_items');
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf('stageJSON') < 0) throw apiError_(API_ERROR.NOT_CONFIGURED, 'GASで setupBandDatabase() を実行して演奏進行欄を追加してください。');
   if (headers.indexOf('有効') < 0) throw apiError_(API_ERROR.NOT_CONFIGURED, 'GASで setupBandDatabase() を実行して、進行項目の有効欄を追加してください。');
 }
 
@@ -978,10 +1120,11 @@ function adminSaveSelfPractice_(records) {
   return withWriteLock_(function() {
     requireRecords_(records);
     const sessions = indexBy_(activeSessions_(), '予定ID');
-    const guardians = indexBy_(readTable_('m_guardians').filter(function(row) { return asBoolean_(row['在籍']); }), '保護者ID');
+    const guardians = indexBy_(latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }).filter(function(row) { return asBoolean_(row['在籍']); }), '保護者ID');
     const rows = records.map(function(record) {
       if (!sessions[record['予定ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '予定がありません。');
-      ['鍵の担当', '中止判断者'].forEach(function(key) { if (record[key] && !guardians[record[key]]) throw apiError_(API_ERROR.INVALID_REQUEST, key + 'を在籍保護者から選んでください。'); });
+      const prior = latestRows_(readTable_('session_selfpractice'), function(row) { return row['予定ID']; }).find(function(row) { return row['予定ID'] === record['予定ID']; }) || {};
+      ['鍵の担当', '中止判断者'].forEach(function(key) { if (record[key] === undefined) record[key] = prior[key] || ''; });
       const row = copyObject_(record); row['施設使用申請済'] = asBoolean_(row['施設使用申請済']); return row;
     });
     unpublishSessions_(rows.map(function(row) { return row['予定ID']; }));
@@ -993,7 +1136,7 @@ function adminSaveDutyAssignments_(records) {
   return withWriteLock_(function() {
     requireRecords_(records);
     const sessions = indexBy_(activeSessions_(), '予定ID');
-    const guardians = indexBy_(readTable_('m_guardians').filter(function(row) { return asBoolean_(row['在籍']); }), '保護者ID');
+    const guardians = indexBy_(latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }).filter(function(row) { return asBoolean_(row['在籍']); }), '保護者ID');
     const rows = records.map(function(record) {
       if (!sessions[record['予定ID']] || !String(record['役割'] || '').trim() || !/^[A-Za-z0-9_\-\u3040-\u30ff\u4e00-\u9faf]{1,80}$/.test(String(record['区分'] || ''))) throw apiError_(API_ERROR.INVALID_REQUEST, '当番の予定・役割・識別子が不正です。');
       if (record['保護者ID'] && !guardians[record['保護者ID']]) throw apiError_(API_ERROR.INVALID_REQUEST, '保護者が不正です。');
@@ -1008,3 +1151,163 @@ function adminSaveDutyAssignments_(records) {
 function sheetLiteral_(value) {
   return typeof value === 'string' && /^[=+@-]/.test(value) ? "'" + value : value;
 }
+
+function keyedRows_(rows, key) { const result = {}; rows.forEach(function(row) { result[key(row)] = row; }); return result; }
+function partialAnswer_(record, key, prior) {
+  if (record[key] === undefined) return prior === undefined ? '' : prior;
+  if (record[key] === null || record[key] === '') return '';
+  if (record[key] === true || record[key] === false) return record[key];
+  throw apiError_(API_ERROR.INVALID_REQUEST, '回答は出席・欠席・未入力で指定してください。');
+}
+
+function teacherAssignmentConflicts_(sessions) {
+  const availability = keyedRows_(latestRows_(readTable_('teacher_availability'), function(row) { return row['先生ID'] + '|' + row['予定ID'] + '|' + row['枠']; }), function(row) { return row['先生ID'] + '|' + row['予定ID'] + '|' + row['枠']; });
+  const conflicts = [];
+  sessions.filter(function(s) { return s['種別'] !== '本番'; }).forEach(function(s) { ['am', 'pm'].forEach(function(slot) {
+    if (s['実施有無_' + slot] === 'なし' || s['staffing_' + slot] !== '先生あり') return;
+    const label = slot === 'am' ? '午前' : '午後';
+    String(s['担当先生ID_' + slot] || '').split(',').filter(Boolean).forEach(function(id) { const row = availability[id.trim() + '|' + s['予定ID'] + '|' + label]; if (!row || row['可否'] !== '○') conflicts.push({ sessionId: s['予定ID'], date: s['日付'], slot: label, teacherId: id.trim(), availability: row ? row['可否'] : '' }); });
+  }); }); return conflicts;
+}
+
+function layoutRows_() {
+  if (!getDatabase_().getSheetByName('event_layouts')) return [];
+  return latestRows_(readTable_('event_layouts'), function(row) { return row['配置図ID']; }).filter(function(row) { return asBoolean_(row['有効']); }).map(function(row) {
+    return { id: row['配置図ID'], sessionId: row['予定ID'], name: row['図名'], notes: row['備考'], items: JSON.parse(row['配置JSON'] || '[]'), active: true };
+  });
+}
+function publicLayouts_(sessions) {
+  const allowed = indexBy_(sessions, '予定ID');
+  return layoutRows_().filter(function(row) { return allowed[row.sessionId] && allowed[row.sessionId]['種別'] === '本番'; }).map(function(row) {
+    return { id: row.id, sessionId: row.sessionId, name: row.name, notes: row.notes, items: row.items.map(function(item) { return { id: item.id, kind: item.kind, label: item.label, x: item.x, y: item.y }; }) };
+  });
+}
+function adminSaveLayouts_(records) {
+  return withWriteLock_(function() {
+    requireRecords_(records);
+    const sessions = indexBy_(activeSessions_(), '予定ID');
+    const members = indexBy_(latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }).filter(function(row) { return asBoolean_(row['在籍']); }), '子どもID');
+    const rows = records.map(function(record) {
+      assertKnownKeys_(record, ['id','sessionId','name','notes','items','active']);
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(String(record.id || '')) || !sessions[record.sessionId] || sessions[record.sessionId]['種別'] !== '本番') throw apiError_(API_ERROR.INVALID_REQUEST, '本番予定と配置図IDを指定してください。');
+      if (!String(record.name || '').trim() || !Array.isArray(record.items) || record.items.length > 100) throw apiError_(API_ERROR.INVALID_REQUEST, '図名と100項目以内の配置を指定してください。');
+      const ids = {};
+      const items = record.items.map(function(item) {
+        assertKnownKeys_(item, ['id','kind','label','memberId','x','y']);
+        if (!/^[A-Za-z0-9_-]{1,80}$/.test(String(item.id || '')) || ids[item.id] || ['person','instrument'].indexOf(item.kind) < 0 || !String(item.label || '').trim() || String(item.label).length > 40 || typeof item.x !== 'number' || typeof item.y !== 'number' || !isFinite(item.x) || !isFinite(item.y) || item.x < 5 || item.x > 95 || item.y < 5 || item.y > 90) throw apiError_(API_ERROR.INVALID_REQUEST, '配置項目の名称・種類・位置が不正です。');
+        ids[item.id] = true;
+        if (item.memberId && (item.kind !== 'person' || !members[item.memberId])) throw apiError_(API_ERROR.INVALID_REQUEST, '在籍中のメンバーを選んでください。');
+        return { id: String(item.id), kind: item.kind, label: item.memberId ? members[item.memberId]['氏名'] : String(item.label).trim(), memberId: item.memberId || '', x: item.x, y: item.y };
+      });
+      return { '配置図ID': record.id, '予定ID': record.sessionId, '図名': String(record.name).trim(), '備考': String(record.notes || ''), '配置JSON': JSON.stringify(items), '有効': record.active !== false, '更新時刻': new Date() };
+    });
+    if (!getDatabase_().getSheetByName('event_layouts')) throw apiError_(API_ERROR.NOT_CONFIGURED, 'setupBandDatabase()で配置図タブを追加してください。');
+    unpublishSessions_(rows.map(function(row) { return row['予定ID']; }));
+    appendObjects_('event_layouts', rows);
+    return { saved: rows.length };
+  });
+}
+
+// 演奏進行は専用JSON欄。自由文の注意点や持ち物を構造化データで上書きしない。
+function normalizeStage_(value, sessionId) {
+  if (!value) return { speakers: [], microphones: [], prepare: [], layoutId: '', changes: '' };
+  let stage; try { stage = typeof value === 'string' ? JSON.parse(value) : value; } catch (_) { throw apiError_(API_ERROR.INVALID_REQUEST, '演奏進行の形式が不正です。'); }
+  if (!stage || typeof stage !== 'object' || Array.isArray(stage)) throw apiError_(API_ERROR.INVALID_REQUEST, '演奏進行の形式が不正です。');
+  assertKnownKeys_(stage, ['speakers','prepare','microphones','layoutId','changes','placeText']);
+  const people = {};
+  latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }).filter(function(row) { return asBoolean_(row['在籍']); }).forEach(function(row) { people[row['子どもID']] = true; });
+  latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }).filter(function(row) { return asBoolean_(row['在籍']); }).forEach(function(row) { people[row['保護者ID']] = true; });
+  function ids(values) { if (!Array.isArray(values)) throw apiError_(API_ERROR.INVALID_REQUEST, '演奏担当の形式が不正です。'); return values.filter(function(id, index) { if (typeof id !== 'string' || !people[id]) throw apiError_(API_ERROR.INVALID_REQUEST, '在籍中の演奏担当を選んでください。'); return values.indexOf(id) === index; }); }
+  function person(id) { if (!id) return ''; if (typeof id !== 'string' || !people[id]) throw apiError_(API_ERROR.INVALID_REQUEST, '在籍中のマイク担当を選んでください。'); return id; }
+  function text(value, limit) { if (value === undefined || value === null) return ''; if (typeof value !== 'string' || value.length > limit) throw apiError_(API_ERROR.INVALID_REQUEST, '演奏進行の入力が長すぎるか形式が不正です。'); return value.trim(); }
+  const microphones = stage.microphones || [];
+  if (!Array.isArray(microphones) || microphones.length > 100) throw apiError_(API_ERROR.INVALID_REQUEST, 'マイク欄の形式が不正です。');
+  const layoutId = text(stage.layoutId, 100);
+  if (layoutId && !layoutRows_().some(function(layout) { return layout.id === layoutId && layout.sessionId === sessionId; })) throw apiError_(API_ERROR.INVALID_REQUEST, 'この本番の配置図を選んでください。');
+  return Object.assign({}, Object.prototype.hasOwnProperty.call(stage, 'placeText') ? {placeText: text(stage.placeText, 200)} : {}, { speakers: ids(stage.speakers || []), prepare: ids(stage.prepare || []), microphones: microphones.map(function(mic) { if (!mic || typeof mic !== 'object' || Array.isArray(mic)) throw apiError_(API_ERROR.INVALID_REQUEST, 'マイク欄の形式が不正です。'); assertKnownKeys_(mic, ['label','from','to']); return { label: text(mic.label, 80), from: person(mic.from), to: person(mic.to) }; }), layoutId: layoutId, changes: text(stage.changes, 1000) });
+}
+function compareStage_(a, b) {
+  const day = { '前日': 0, '当日': 1 }; return (day[a['日区分']] || 0) - (day[b['日区分']] || 0) || Number(a['並び順'] || 0) - Number(b['並び順'] || 0) || String(a['項目ID']).localeCompare(String(b['項目ID']));
+}
+function publicStage_(item, allowedIds) {
+  let stage; try { stage = JSON.parse(item.stageJSON || '{}'); } catch (_) { stage = {}; }
+  const names = {};
+  latestRows_(readTable_('m_members'), function(row) { return row['子どもID']; }).filter(function(row) { return asBoolean_(row['在籍']); }).forEach(function(row) { names[row['子どもID']] = row['氏名']; });
+  latestRows_(readTable_('m_guardians'), function(row) { return row['保護者ID']; }).filter(function(row) { return asBoolean_(row['在籍']); }).forEach(function(row) { names[row['保護者ID']] = row['表示名']; });
+  const roles = {}; function role(id, label) { if (allowedIds[id]) { roles[id] = roles[id] || []; if (roles[id].indexOf(label) < 0) roles[id].push(label); } }
+  (stage.speakers || []).forEach(function(id) { role(id, '話す担当'); }); (stage.prepare || []).forEach(function(id) { role(id, '次の準備'); });
+  const microphones = (stage.microphones || []).map(function(mic) { role(mic.from, 'マイクを渡す'); role(mic.to, 'マイクを受け取る'); return { label: mic.label || '', fromName: names[mic.from] || '', toName: names[mic.to] || '' }; });
+  String(item['担当'] || '').split(',').forEach(function(id) { role(id, '進行担当'); });
+  return { id: item['項目ID'], sessionId: item['予定ID'], day: item['日区分'], order: item['並び順'], time: item['時刻'], kind: item['種別'], title: item['内容'], stage: { speakerNames: (stage.speakers || []).map(function(id) { return names[id] || ''; }).filter(Boolean), prepareNames: (stage.prepare || []).map(function(id) { return names[id] || ''; }).filter(Boolean), microphones: microphones, layoutId: stage.layoutId || '', changes: stage.changes || '' }, roles: roles };
+}
+
+function instrumentText_(value) {
+  if (typeof value !== 'string' || value.trim().length > 40) throw apiError_(API_ERROR.INVALID_REQUEST, '使用楽器は40文字以内で入力してください。');
+  return value.trim();
+}
+function instrumentRows_() {
+  if (!getDatabase_().getSheetByName('m_instruments')) return [];
+  return latestRows_(readTable_('m_instruments'), function(row) { return row['楽器ID']; });
+}
+function adminSaveInstruments_(records) {
+  return withWriteLock_(function() {
+    requireRecords_(records);
+    if (!getDatabase_().getSheetByName('m_instruments')) throw apiError_(API_ERROR.NOT_CONFIGURED, '楽器マスターの構造移行が必要です。');
+    const all = indexBy_(instrumentRows_(), '楽器ID');
+    const rows = records.map(function(record) {
+      const id = String(record['楽器ID'] || ''); const name = instrumentText_(record['表示名']);
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || !name || typeof record['有効'] !== 'boolean') throw apiError_(API_ERROR.INVALID_REQUEST, '楽器ID・表示名・有効状態が不正です。');
+      if (all[id] && all[id]['表示名'] !== name) throw apiError_(API_ERROR.INVALID_REQUEST, '登録済み楽器の名前は変更できません。別の候補として追加してください。');
+      const row = { '楽器ID': id, '表示名': name, '有効': record['有効'], '更新時刻': new Date() }; all[id] = row; return row;
+    });
+    const names = {}; Object.keys(all).forEach(function(id) { const row = all[id]; if(asBoolean_(row['有効'])) { if(names[row['表示名']]) throw apiError_(API_ERROR.INVALID_REQUEST, '同じ表示名の楽器が既にあります。'); names[row['表示名']] = true; } });
+    appendObjects_('m_instruments', rows); return { saved: rows.length };
+  });
+}
+
+function assertKnownKeys_(record, allowed) {
+  if (!record || typeof record !== 'object' || Array.isArray(record) || Object.keys(record).some(function(key) { return allowed.indexOf(key) < 0; })) throw apiError_(API_ERROR.INVALID_REQUEST, '未対応の項目があります。保存せず入力形式を確認してください。');
+}
+
+function projectTimelinePlace_(item, row) {
+  let stage; try { stage = JSON.parse(item.stageJSON || '{}'); } catch (_) { return; }
+  if (stage && typeof stage.placeText === 'string') row['場所自由入力'] = stage.placeText;
+}
+
+// Conservative whole-database compare-and-swap. Reserve before writing so a
+// partial failure cannot be retried blindly. All nested writers share this lock.
+function databaseRevision_() { return String(PropertiesService.getScriptProperties().getProperty('DATA_REVISION') || '0'); }
+function handleWrite_(request) {
+  return withWriteLock_(function() {
+    const auth = authorize_(request);
+    if (request.action.indexOf('admin_') === 0) requireRole_(auth, 'admin');
+    if (request.action === 'save_parent_month') requireRole_(auth, 'parent');
+    if (request.action === 'save_teacher_availability') requireRole_(auth, 'teacher');
+    if (typeof request.expectedRevision !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(request.requestId || '')) throw apiError_('upgrade_required', '保存方式が更新されました。入力を控えてから最新画面を開いてください。');
+    const props = PropertiesService.getScriptProperties();
+    const identity = auth.role + ':' + (auth.household ? auth.household['家庭ID'] : auth.teacher ? auth.teacher['先生ID'] : 'admin');
+    const fingerprint = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(request)).map(function(b) { return ('0' + ((b + 256) % 256).toString(16)).slice(-2); }).join('');
+    let last; try { last = JSON.parse(props.getProperty('LAST_WRITE_RECEIPT') || 'null'); } catch (_) { last = null; }
+    if (last && last.id === request.requestId && last.identity === identity) {
+      if (last.fingerprint !== fingerprint) throw apiError_('conflict', '同じ送信番号の入力内容が変わっています。最新内容を確認してください。');
+      if (last.status === 'done' && last.result) return last.result;
+      throw apiError_('recovery_required', '前回の保存結果が確定できません。入力は残っています。最新内容と照合してから再開してください。');
+    }
+    if (request.expectedRevision !== databaseRevision_()) throw apiError_('conflict', 'ほかの端末の保存が先に反映されています。入力は残っています。最新内容を確認してください。');
+    const revision = Utilities.getUuid();
+    const receipt = {id:request.requestId,identity:identity,fingerprint:fingerprint,status:'pending',revision:revision};
+    props.setProperty('DATA_REVISION', revision);
+    props.setProperty('LAST_WRITE_RECEIPT', JSON.stringify(receipt));
+    const result = dispatchWrite_(request);
+    result.data = result.data || {}; result.data._revision = revision; result.data._protocol = 1;
+    receipt.status = 'done';
+    if (JSON.stringify(result).length < 2000) receipt.result = result;
+    props.setProperty('LAST_WRITE_RECEIPT', JSON.stringify(receipt));
+    return result;
+  });
+}
+
+function teacherPublishedStage_(){const allowed=indexBy_(publishedSessions_(),'予定ID');return latestRows_(readTable_('timeline_items'),function(r){return r['項目ID'];}).filter(function(r){return allowed[r['予定ID']]&&asBoolean_(r['有効'])&&r.scope==='ステージ進行';}).sort(compareStage_).map(function(r){return publicStage_(r,{});});}
+function exportSharedBackup_(){const tables={};Object.keys(BAND_DB_SCHEMA).forEach(function(name){const sheet=getDatabase_().getSheetByName(name);if(sheet)tables[name]=sheet.getDataRange().getValues();});return {format:'hiranuma-shared-backup',version:1,createdAt:new Date().toISOString(),tables:tables};}
+// Operator-only local candidate. Restore only to an empty target; never replaces rows.
+function restoreSharedBackupToEmpty_(backup){if(!backup||backup.format!=='hiranuma-shared-backup'||backup.version!==1||!backup.tables)throw Error('バックアップ形式が不正です');const names=Object.keys(backup.tables);if(names.length!==Object.keys(BAND_DB_SCHEMA).length||names.some(function(n){return !BAND_DB_SCHEMA[n];}))throw Error('表の構成が一致しません');names.forEach(function(n){const rows=backup.tables[n],sheet=getDatabase_().getSheetByName(n);if(!sheet||sheet.getLastRow()>1)throw Error('空の復元先だけに復元できます');if(!Array.isArray(rows)||!Array.isArray(rows[0])||rows[0].length<BAND_DB_SCHEMA[n].length||new Set(rows[0]).size!==rows[0].length||BAND_DB_SCHEMA[n].some(function(k){return rows[0].indexOf(k)<0;})||rows.some(function(r){return !Array.isArray(r)||r.length>rows[0].length||r.some(function(v){return v!==null&&typeof v==='object';});}))throw Error('列または行の形式が不正です');});names.forEach(function(n){if(JSON.stringify(getDatabase_().getSheetByName(n).getDataRange().getValues()[0])!==JSON.stringify(backup.tables[n][0]))throw Error('復元先の列を先に整合してください');});names.forEach(function(n){const rows=backup.tables[n];if(rows.length>1)getDatabase_().getSheetByName(n).getRange(2,1,rows.length-1,rows[0].length).setValues(rows.slice(1).map(function(r){return rows[0].map(function(_,i){return r[i]===undefined?'':r[i];});}));});return {restored:true};}

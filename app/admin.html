@@ -7,10 +7,12 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
   <title>運営管理｜平沼マーチングバンド</title>
-  <link rel="stylesheet" href="common.css">
-  <script src="api.js" defer></script>
-  <script src="shared.js" defer></script>
-  <script src="admin.js?v=20260922-1" defer></script>
+  <link rel="stylesheet" href="common.css?v=20261029-shared1">
+  <script src="api.js?v=20261029-shared1" defer></script>
+  <script src="shared.js?v=20261029-shared1" defer></script>
+  <script src="practice-plan.js?v=20261029-shared1" defer></script>
+  <script src="layout-mobile.js?v=20261029-shared1" defer></script>
+  <script src="admin.js?v=20261029-shared1" defer></script>
 </head>
 <body>
   <header><div class="shell"><p class="eyebrow">平沼マーチングバンド · 管理者</p><h1>毎月の運営</h1></div></header>
@@ -24,7 +26,7 @@
     </section>
     <fieldset id="workspace" hidden>
       <legend class="sr-only">月間運営</legend>
-      <div class="toolbar"><strong id="month-title"></strong><span id="save-state"></span><button id="save" class="primary" type="button">変更を保存</button><button id="reload" type="button">再読み込み</button><button id="forget" type="button">この端末の認証を解除</button></div>
+      <div class="toolbar"><strong id="month-title"></strong><span id="save-state"></span><button id="save" class="primary" type="button">下書きを保存</button><button id="go-publish" type="button" hidden>公開へ進む</button><button class="subtle" id="reload" type="button">再読み込み</button><button class="subtle" id="forget" type="button">この端末の認証を解除</button></div>
       <nav id="tabs" aria-label="主な作業" class="tabs admin-main-tabs"></nav>
       <nav id="utility-tabs" aria-label="補助メニュー" class="utility-tabs"></nav>
       <section id="panel" aria-live="off"></section>

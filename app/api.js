@@ -20,7 +20,9 @@ window.BandAPI = (() => {
     }
     let endpoint = storageGet(endpointKey) || defaultEndpoint;
     const inviteLabel = role === 'a' ? '管理者' : role === 't' ? '先生' : '保護者';
+    let revision = null, pending = null;
     return {
+      acceptRevision(value) { revision = value; pending = null; },
       get endpoint() { return endpoint; },
       get hasToken() { return Boolean(token); },
       configure(value) { if (!validEndpoint(value)) throw new Error('GAS Web App の /exec URL を指定してください。'); endpoint = value; storageSet(endpointKey, endpoint); },
@@ -28,13 +30,22 @@ window.BandAPI = (() => {
       async request(action, payload = {}) {
         if (!token) throw new Error(`${inviteLabel}用の招待URLから開いてください。`);
         if (!validEndpoint(endpoint)) throw new Error('GAS Web App の接続先を設定してください。');
+        const read = ['admin_export_backup','admin_bootstrap','teacher_bootstrap','parent_bootstrap','parent_card'].includes(action);
+        const input = JSON.stringify({action, payload});
+        if (!read && revision === null) throw new Error('最新の画面を読み込んでから保存してください。');
+        if (!read && pending && pending.input !== input) { const e = new Error('前回の保存結果を先に確認してください。入力は保持しています。'); e.code = 'recovery_required'; throw e; }
+        if (!read && !pending) pending = {input, expectedRevision: revision, requestId: crypto.randomUUID()};
+        const metadata = read ? {} : {expectedRevision:pending.expectedRevision, requestId:pending.requestId};
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 45000);
         try {
-          const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ ...payload, action, [role]: token }), credentials: 'omit', redirect: 'follow', signal: controller.signal });
+          const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ ...payload, ...metadata, action, [role]: token }), credentials: 'omit', redirect: 'follow', signal: controller.signal });
           if (!response.ok) throw new Error('接続できません。GASのデプロイ設定を確認してください。');
           const result = await response.json();
           if (!result.ok) { const error = new Error(result.message || '処理に失敗しました。'); error.code = result.error; throw error; }
+          if (result.data?._protocol !== 1 || typeof result.data._revision !== 'string') { const e = new Error('保存APIの競合保護が未更新です。管理者に確認してください。'); e.code='upgrade_required'; throw e; }
+          if (!read) { revision = result.data._revision; pending = null; }
+          else if (revision === null || (role !== 'a' && action.endsWith('_bootstrap'))) revision = result.data._revision;
           return result.data;
         } catch (error) {
           if (error.name === 'AbortError') throw new Error('応答を確認できませんでした。保存された可能性があります。再読み込みして状態を確認してください。');

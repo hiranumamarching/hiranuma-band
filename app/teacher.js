@@ -2,7 +2,7 @@
 (() => {
   const api = BandAPI.create('t');
   const $ = id => document.getElementById(id);
-  const state = { data: undefined, monthId: '', draft: new Map(), busy: false };
+  const state = { data: undefined, monthId: '', draft: new Map(), busy: false, editing:false };
   const apiSlot = slot => ({ am: '午前', pm: '午後', 終日: '終日' }[slot] || slot);
   const sessionDate = session => new Date(`${session['日付']}T00:00:00+09:00`);
   const monthKey = value => String(value || '').trim().slice(0, 7);
@@ -53,9 +53,16 @@
     const date = sessionDate(session); const day = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
     const dateCell = el('th', undefined, 'teacher-day-date'); dateCell.scope = 'row';
     dateCell.append(el('span', `${session['日付'].slice(5).replace('-', '/')}（${day}）`));
-    const place = session['場所名'] || (state.data.places || []).find(item => item['場所ID'] === session['場所ID'])?.['名称'] || '';
-    const info = [place, session['開始'] && session['終了'] ? `${session['開始']}–${session['終了']}` : ''].filter(Boolean).join(' · ');
-    if (info) dateCell.append(el('small', info));
+    const times = session['開始'] && session['終了'] ? `${session['開始']}–${session['終了']}` : '';
+    if (session['種別'] === '通常練習') {
+      const placeName = id => (state.data.places || []).find(item => item['場所ID'] === id)?.['名称'] || '未設定';
+      dateCell.append(el('small', `集合場所：${placeName(session['集合場所ID'])}`, 'teacher-practice-place'), el('small', `練習場所：${placeName(session['場所ID'])}`, 'teacher-practice-place'));
+      if (times) dateCell.append(el('small', times));
+    } else {
+      const place = session['場所名'] || (state.data.places || []).find(item => item['場所ID'] === session['場所ID'])?.['名称'] || '';
+      const info = [place, times].filter(Boolean).join(' · ');
+      if (info) dateCell.append(el('small', info));
+    }
     row.append(dateCell);
     if (session['種別'] === '本番' || session['種別'] === '自主練') {
       const stateCell = el('td', session['種別'], 'cell-state merged-state'); stateCell.colSpan = 2; row.append(stateCell);
@@ -80,7 +87,8 @@
     }
     head.append(heading);
     const body = el('tbody'); sessions.forEach(session => body.append(renderSession(session)));
-    table.append(head, body); card.append(table); wrap.append(card);
+    table.append(head, body);card.append(button(state.editing?'閲覧に戻る':'参加可否を編集',()=>{state.editing=!state.editing;render();}));if(!state.editing)table.querySelectorAll('button').forEach(b=>b.disabled=true); card.append(table); wrap.append(card);
+    (state.data.publishedSessions||[]).filter(s=>s['種別']==='本番'&&monthKey(s['月ID'])===monthKey(state.monthId)).forEach(s=>{const section=el('section',undefined,'card');const event=(state.data.publishedEvents||[]).find(e=>e['予定ID']===s['予定ID']);section.append(el('h2',event?.['本番名']||'公開済みの本番'));BandShared.renderDaySchedule(section,s,state.data.daySchedule||[],state.data.places||[]);for(const item of (state.data.stageItems||[]).filter(i=>i.sessionId===s['予定ID'])){const detail=el('details');detail.append(el('summary',`${item.order}. ${item.kind} · ${item.title}`),el('p',(item.stage?.speakerNames||[]).join('・')||'担当未指定'),el('p',item.stage?.changes||''));section.append(detail);}for(const layout of (state.data.layouts||[]).filter(l=>l.sessionId===s['予定ID'])){const detail=el('details');detail.append(el('summary',layout.name));BandShared.renderLayout(detail,layout);section.append(detail);}wrap.append(section);});
     updateSaveState();
   }
   function updateSaveState() { const count = state.draft.size; $('save-state').textContent = count ? `未送信：${count}枠` : '変更はありません。'; $('save').disabled = state.busy || !count; }
@@ -94,6 +102,9 @@
   }
   $('save').addEventListener('click', () => run(async () => { const records = [...state.draft.entries()].map(([key, availability]) => { const [sessionId, slot] = key.split('|'); return { sessionId, slot: apiSlot(slot), availability }; }); await api.request('save_teacher_availability', { records }); await load(); }, '先生の可否を保存しました。'));
   $('connect').addEventListener('click', () => run(async () => { api.configure($('api-url').value.trim()); await load(); }, '接続しました。'));
+  window.addEventListener('beforeunload', event => {
+    if (state.draft.size) { event.preventDefault(); event.returnValue = ''; }
+  });
   if (!api.hasToken) message('先生用の招待URL（teacher.html?t=…）から開いてください。', true);
   else if (!api.endpoint) { $('connection').hidden = false; message('初回の接続先を設定してください。'); }
   else run(load, '読み込みました。');

@@ -5,20 +5,22 @@
  */
 
 const BAND_DB_SCHEMA = {
+  m_instruments: ['楽器ID', '表示名', '有効', '更新時刻'],
   m_households: ['家庭ID', '家庭名', '緊急連絡先', '招待トークン', '在籍'],
   m_guardians: ['保護者ID', '家庭ID', '表示名', '対応可能な役割', '在籍'],
   m_members: ['子どもID', '家庭ID', '氏名', '基本担当楽器', '在籍', '学年'],
   m_teachers: ['先生ID', '氏名', '担当楽器', '招待トークン', '在籍'],
   m_places: ['場所ID', '名称', '並び順', '有効'],
   months: ['月ID', '状態', '先生入力締切', '保護者入力締切'],
-  sessions: ['予定ID', '月ID', '日付', '種別', '実施有無_am', 'staffing_am', '担当先生ID_am', '実施有無_pm', 'staffing_pm', '担当先生ID_pm', '集合', '開始', '終了', '解散', '場所ID', '確定状態', '備考'],
+  sessions: ['予定ID', '月ID', '日付', '種別', '実施有無_am', 'staffing_am', '担当先生ID_am', '実施有無_pm', 'staffing_pm', '担当先生ID_pm', '集合', '開始', '終了', '解散', '場所ID', '確定状態', '備考', '集合場所ID'],
   session_selfpractice: ['予定ID', '鍵の担当', '中止判断者', '緊急連絡先', '施設使用申請済', '実施報告'],
   teacher_availability: ['先生ID', '予定ID', '枠', '可否', '送信時刻'],
   attendance: ['子どもID', '予定ID', '午前', '午後', '連絡事項', '入力者', '送信時刻'],
-  duty_offers: ['保護者ID', '予定ID', '可否', 'メモ', '送信時刻'],
+  duty_offers: ['保護者ID', '予定ID', '可否', 'メモ', '送信時刻', '午前可否', '午後可否'],
   duty_assignments: ['予定ID', '役割', '保護者ID', '区分', '更新時刻'],
   events: ['予定ID', '本番名', '会場', '衣装', '子どもの持ち物', '全体連絡'],
-  timeline_items: ['項目ID', '予定ID', '日区分', '時刻', '並び順', 'scope', '種別', '内容', '場所ID', '担当', '担当自由入力', '持ち物', '注意点', '有効'],
+  event_layouts: ['配置図ID', '予定ID', '図名', '備考', '配置JSON', '有効', '更新時刻'],
+  timeline_items: ['項目ID', '予定ID', '日区分', '時刻', '並び順', 'scope', '種別', '内容', '場所ID', '担当', '担当自由入力', '持ち物', '注意点', '有効', 'stageJSON'],
   guide_items: ['項目ID', '種別', '区分', '並び順', '内容', '有効', '更新時刻'],
   annual_event_candidates: ['候補ID', '並び順', '月', '本番名', '日程', '場所', '演奏時間', '楽器運び', '演奏できる楽器', '連絡先', '事前打ち合わせ', 'その他', '有効', '更新時刻'],
   reference_backups: ['バックアップID', '種別', '内容JSON', '作成時刻']
@@ -54,6 +56,7 @@ function setupBandDatabase() {
   }
 
   migrateSessionsSchema();
+  migrateStageSchema();
   migratePlacesSchema();
   migrateMembersSchema();
   migrateTeachersSchema();
@@ -129,18 +132,14 @@ function createInviteToken_() {
   return Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
 }
 
-/** 場所は履歴を残し、有効なものだけを選択肢に表示する。旧初期場所は平沼小学校以外を無効化する。 */
+/** 場所の履歴・表示状態を変えず、有効列だけを必要な場合に追加する。 */
 function migratePlacesSchema() {
   return withWriteLock_(function() {
     const sheet = getDatabase_().getSheetByName('m_places');
     if (!sheet) throw new Error('m_places がありません。');
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     if (headers.indexOf('有効') < 0) sheet.getRange(1, headers.length + 1, 1, 1).setValues([['有効']]);
-    const retired = latestRows_(readTable_('m_places'), function(row) { return row['場所ID']; }).filter(function(row) {
-      return row['場所ID'] !== 'P001' && (row['有効'] === '' || asBoolean_(row['有効']));
-    }).map(function(row) { row['有効'] = false; return row; });
-    if (retired.length) appendObjects_('m_places', retired);
-    return { retired: retired.length };
+    return { columnsAdded: headers.indexOf('有効') < 0 ? 1 : 0, retired: 0 };
   });
 }
 
@@ -191,7 +190,7 @@ function migrateSessionsSchema() {
     const missing = BAND_DB_SCHEMA.sessions.filter(function(key) { return headers.indexOf(key) < 0; });
     if (missing.length) sheet.getRange(1, headers.length + 1, 1, missing.length).setValues([missing]);
     const rows = latestRows_(readTable_('sessions'), function(row) { return row['予定ID']; });
-    const migrated = rows.filter(function(row) { return !row.staffing_am; }).map(function(row) {
+    const migrated = rows.filter(function(row) { return !row.staffing_am && !row['実施有無_am'] && !row['実施有無_pm']; }).map(function(row) {
       const next = copyObject_(row);
       next.staffing_am = row.staffing || '未定';
       next['実施有無_am'] = row['実施有無_am'] || '実施';
@@ -203,5 +202,62 @@ function migrateSessionsSchema() {
     });
     if (migrated.length) appendObjects_('sessions', migrated);
     return { columnsAdded: missing.length, sessionsMigrated: migrated.length };
+  });
+}
+
+/** 演奏進行欄を末尾へ追記。既存セル・行・列位置を変更しない。 */
+function migrateStageSchema() {
+  return withWriteLock_(function() {
+    const sheet = getDatabase_().getSheetByName('timeline_items');
+    if (!sheet) throw new Error('timeline_items がありません。');
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (headers.indexOf('stageJSON') >= 0) return { columnsAdded: 0 };
+    sheet.getRange(1, headers.length + 1, 1, 1).setValues([['stageJSON']]); return { columnsAdded: 1 };
+  });
+}
+
+
+/** 本番反映前にバックアップ後に実行する、追記のみの構造移行（ダミー投入なし）。 */
+function migratePerformanceSchema() {
+  withWriteLock_(function() {
+    ['event_layouts', 'm_instruments'].forEach(function(name) { ensureSheet_(getDatabase_(), name, BAND_DB_SCHEMA[name]); });
+  });
+  migrateSessionsSchema(); migrateStageSchema();
+  return { version: 2 };
+}
+
+// Explicit migration only. Keeps existing response rows untouched. Not deployed.
+function migrateDutyOfferSlotsSchema() {
+ const sheet=getDatabase_().getSheetByName('duty_offers');
+ if(!sheet)throw new Error('duty_offersがありません。');
+ const headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
+ const missing=['午前可否','午後可否'].filter(k=>!headers.includes(k));
+ if(missing.length)sheet.getRange(1,headers.length+1,1,missing.length).setValues([missing]);
+}
+
+/** Approved 2026-10-28: structure only; never migrate/seed/update data rows. */
+function applyApprovedStructure20261029() {
+  return withWriteLock_(function() {
+    const db = getDatabase_();
+    const columns = {sessions:['集合場所ID'], duty_offers:['午前可否','午後可否'], timeline_items:['stageJSON']};
+    const tables = ['m_instruments','event_layouts'];
+    const plans = [];
+    Object.keys(columns).forEach(function(name) {
+      const sheet = db.getSheetByName(name);
+      if (!sheet) throw Error('Required table missing: '+name);
+      const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
+      const expected = BAND_DB_SCHEMA[name].filter(function(h){return columns[name].indexOf(h)<0;});
+      if (expected.some(function(h,i){return headers[i]!==h;}) || headers.some(function(h){return BAND_DB_SCHEMA[name].indexOf(h)<0;}) || new Set(headers).size!==headers.length) throw Error('Unexpected headers: '+name);
+      plans.push({name:name,sheet:sheet,at:headers.length+1,missing:columns[name].filter(function(h){return headers.indexOf(h)<0;})});
+    });
+    tables.forEach(function(name) {
+      const sheet = db.getSheetByName(name);
+      if (sheet && JSON.stringify(sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0])!==JSON.stringify(BAND_DB_SCHEMA[name])) throw Error('Unexpected existing table: '+name);
+    });
+    let addedTables=0, addedColumns=0;
+    tables.forEach(function(name){if(!db.getSheetByName(name)){const sheet=db.insertSheet(name);sheet.getRange(1,1,1,BAND_DB_SCHEMA[name].length).setValues([BAND_DB_SCHEMA[name]]);addedTables++;}});
+    plans.forEach(function(p){if(p.missing.length){p.sheet.getRange(1,p.at,1,p.missing.length).setValues([p.missing]);addedColumns+=p.missing.length;}});
+    const result={tablesAdded:addedTables,columnsAdded:addedColumns,dataRowsChanged:0};
+    console.log(JSON.stringify(result)); return result;
   });
 }
