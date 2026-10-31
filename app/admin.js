@@ -938,7 +938,7 @@
     directPeople.append(el('p', 'この配置図だけに追加します。名簿への登録や自動の紐付けは行いません。', 'muted'), personName, button('この名前で人物を追加', () => {
       const name = personName.value.trim();
       if (!name || name.length > 40) { message('名前を1〜40文字で入力してください。', true); return; }
-      if (layout.items.some(item => item.kind === 'person' && item.label === name)) { message('同じ名前の人物がこの配置図にあります。既存の項目を確認してください。', true); return; }
+      if (layout.items.some(item => item.kind === 'person' && item.label === name) && !confirm('同じ名前の人物があります。別の配置項目として追加しますか？')) { message('同じ名前の人物がこの配置図にあります。既存の項目を確認してください。', true); return; }
       if (add('person', name, '')) personName.value = '';
     }));
     const instruments = el('details'); instruments.append(el('summary', '＋楽器を追加')); const instrumentChoices = (data.instruments || []).filter(item => bool(item['有効'])); if (instrumentChoices.length) instruments.append(pills(instrumentChoices.map(item => [item['楽器ID'], item['表示名']]), '', id => { const instrument = instrumentChoices.find(item => item['楽器ID'] === id); if (instrument) add('instrument', instrument['表示名']); }, '登録済み楽器から追加')); else instruments.append(el('p', '登録済みの楽器はありません。自由入力で追加できます。', 'muted')); const input = document.createElement('input'); input.placeholder = '楽器名（40文字以内）'; input.maxLength = 40; input.setAttribute('aria-label', '追加する楽器名'); const freeInstrument = el('div', undefined, 'row'); freeInstrument.append(input, button('自由入力で追加', () => { if (!input.value.trim()) return; add('instrument', input.value.trim()); input.value = ''; })); instruments.append(el('p', '自由入力はこの配置図だけに追加します。楽器マスターには登録しません。', 'muted'), freeInstrument);
