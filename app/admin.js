@@ -933,6 +933,14 @@
     };
     const add = (kind, label, memberId = '') => { if (layout.items.length >= 100) { message('配置は100項目までです。', true); return; } const item = { id: `POS-${crypto.randomUUID()}`, kind, label, memberId, x: 20 + (layout.items.length % 4) * 20, y: 25 + (Math.floor(layout.items.length / 4) % 3) * 20 }; layout.items.push(item); selected = item.id; update(); redraw(); return item; };
     const members = el('details'); members.append(el('summary', '＋人を追加（メンバーから選択）'), pills(sortedMembers().map(member => [member['子どもID'], member['氏名']]), '', id => { if (layout.items.some(item => item.memberId === id)) { message('このメンバーは配置済みです。', true); return; } add('person', data.masters.members.find(member => member['子どもID'] === id)['氏名'], id); }, '配置するメンバー'));
+    const directPeople = el('details'); directPeople.append(el('summary', '＋名前を直接入力して人物を追加'));
+    const personName = document.createElement('input'); personName.maxLength = 40; personName.placeholder = '名前・グループ名（40文字以内）'; personName.setAttribute('aria-label', '追加する人物の名前');
+    directPeople.append(el('p', 'この配置図だけに追加します。名簿への登録や自動の紐付けは行いません。', 'muted'), personName, button('この名前で人物を追加', () => {
+      const name = personName.value.trim();
+      if (!name || name.length > 40) { message('名前を1〜40文字で入力してください。', true); return; }
+      if (layout.items.some(item => item.kind === 'person' && item.label === name)) { message('同じ名前の人物がこの配置図にあります。既存の項目を確認してください。', true); return; }
+      if (add('person', name, '')) personName.value = '';
+    }));
     const instruments = el('details'); instruments.append(el('summary', '＋楽器を追加')); const instrumentChoices = (data.instruments || []).filter(item => bool(item['有効'])); if (instrumentChoices.length) instruments.append(pills(instrumentChoices.map(item => [item['楽器ID'], item['表示名']]), '', id => { const instrument = instrumentChoices.find(item => item['楽器ID'] === id); if (instrument) add('instrument', instrument['表示名']); }, '登録済み楽器から追加')); else instruments.append(el('p', '登録済みの楽器はありません。自由入力で追加できます。', 'muted')); const input = document.createElement('input'); input.placeholder = '楽器名（40文字以内）'; input.maxLength = 40; input.setAttribute('aria-label', '追加する楽器名'); const freeInstrument = el('div', undefined, 'row'); freeInstrument.append(input, button('自由入力で追加', () => { if (!input.value.trim()) return; add('instrument', input.value.trim()); input.value = ''; })); instruments.append(el('p', '自由入力はこの配置図だけに追加します。楽器マスターには登録しません。', 'muted'), freeInstrument);
     const combinedMembers = el('details'); combinedMembers.append(el('summary', '＋名前と担当楽器を一体で追加'), pills(sortedMembers().map(member => [member['子どもID'], `${member['氏名']}／${member['基本担当楽器'] || '担当楽器未設定'}`]), '', id => {
       const member = data.masters.members.find(member => member['子どもID'] === id); let person = layout.items.find(item => item.kind === 'person' && item.memberId === id);
@@ -941,7 +949,7 @@
       if (!person) return;
       try { BandShared.layoutModel.setInstrument(layout,person.id,member['基本担当楽器'] || ''); BandShared.layoutModel.setMode(layout,'combined'); update(); redraw(); } catch(error) { message(error.message,true); }
     }, '一体で配置するメンバー'));
-    const settings = el('details', undefined, 'layout-settings'); settings.append(el('summary', '人・楽器の追加と設定'), controls, members, combinedMembers, instruments);
+    const settings = el('details', undefined, 'layout-settings'); settings.append(el('summary', '人・楽器の追加と設定'), controls, members, combinedMembers, directPeople, instruments);
     wrap.append(editLarge, el('p', '図の中をタップして選択し、ドラッグや矢印で位置を調整できます。', 'muted'), drawing, settings, metadata); redraw(); return wrap;
   }
   function timelineEditor(item, redraw, refreshOverview = () => {}) {
