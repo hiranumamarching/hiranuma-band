@@ -626,3 +626,5 @@ hr {
 
 /* カード上の指移動を最初の接触から受け取る。周囲のズーム操作は変更しない。 */
 .layout-edit-item{touch-action:none;-webkit-touch-callout:none}
+
+.compact-agenda{display:grid;margin-top:12px;border-top:1px solid #d8deea}.compact-agenda-row{display:flex;align-items:center;gap:8px;width:100%;min-height:52px;padding:10px 8px;border:0;border-bottom:1px solid #d8deea;border-radius:0;background:white;color:#18264d;text-align:left;font-size:15px}.agenda-date{flex:none;font-variant-numeric:tabular-nums}.agenda-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.agenda-arrow{flex:none}.compact-agenda-row:focus-visible{outline:3px solid #e4a21a;outline-offset:-3px}
