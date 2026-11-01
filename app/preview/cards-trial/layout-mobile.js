@@ -17,7 +17,7 @@ window.BandLayoutEditor = (() => {
     const head = el('div', undefined, 'layout-editor-head'); const heading = el('h2', layout.name || '配置図');
     const close = button('閉じる', () => { if (!saving) {if(inline)closeInline();else dialog.close();} }); head.append(heading, close);
     const modes = el('div', undefined, 'layout-editor-modes'); modes.setAttribute('role', 'group'); modes.setAttribute('aria-label', '配置図の表示方式');
-    const hint = el('p', 'カードをタップで選択、もう一度タップで文字を編集。ドラッグで移動できます。', 'layout-editor-hint');
+    const hint = el('p', 'カードを指で押さえたまま動かすと移動できます。タップで選択、もう一度タップで文字を編集。', 'layout-editor-hint');
     const board = el('div', undefined, 'layout-edit-board'); board.setAttribute('role', 'group'); board.setAttribute('aria-label', '配置図。下が客席側');
     const controls = el('div', undefined, 'layout-editor-controls');
     const selection = el('p', '', 'layout-editor-selection'); selection.setAttribute('aria-live', 'polite');
@@ -85,7 +85,9 @@ window.BandLayoutEditor = (() => {
         });
         node.addEventListener('pointerdown', event => {
           if (saving || inline || !event.isPrimary || event.button !== 0 || dragging) return;
-          dragging = { pointerId: event.pointerId, id: item.id, eligible: selected === item.id, startX: event.clientX, startY: event.clientY, before: positions(), started: false };
+          const wasSelected=selected===item.id;select(item.id);
+          if(event.pointerType==='touch')event.preventDefault();
+          dragging = { pointerId: event.pointerId, id: item.id, eligible: true, wasSelected, startX: event.clientX, startY: event.clientY, before: positions(), started: false };
           node.setPointerCapture(event.pointerId);
         });
         node.addEventListener('pointermove', event => {
@@ -99,7 +101,7 @@ window.BandLayoutEditor = (() => {
           if (!dragging || dragging.pointerId !== event.pointerId) return;
           const prior = dragging; dragging = null;
           if (prior.started) { record(prior.before); refresh(); }
-          else if (Math.hypot(event.clientX - prior.startX, event.clientY - prior.startY) < 6) {const again=selected===item.id;select(item.id);if(again)openInline(item);}
+          else if (Math.hypot(event.clientX - prior.startX, event.clientY - prior.startY) < 6) {select(item.id);if(prior.wasSelected)openInline(item);}
         });
         node.addEventListener('pointercancel', cancelDrag); node.addEventListener('lostpointercapture', () => { if (dragging?.id === item.id) cancelDrag(); });
         board.append(node);

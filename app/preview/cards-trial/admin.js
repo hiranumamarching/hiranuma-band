@@ -157,7 +157,7 @@
   async function exportSharedBackup(){try{if(hasChanges())throw Error('先に変更を保存してください。');const result=await api.request('admin_export_backup');const url=URL.createObjectURL(new Blob([JSON.stringify(result.backup)],{type:'application/json'}));const link=el('a');link.href=url;link.download='marching-shared-backup.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),60000);message('バックアップの保存を要求しました。個人情報・招待情報を含むため非公開で保管してください。');}catch(e){message(e.message,true);}}
   function renderHome(){const panel=$('panel');panel.append(el('h2','活動の確認'),el('p','管理者用画面です。共有保存先から読み込んだ予定・当番を確認します。','muted'));const next=eventSessions()[0];if(next){const c=el('section',undefined,'card');c.append(el('h3',eventFor(next)['本番名']),el('p',`${next['日付']} / 集合 ${next['集合']||'未定'} / ${eventFor(next)['会場']||'会場未定'}`),button('本番の全体を見る',()=>openEventSchedule(next)));panel.append(c);}panel.append(button('日程・本番をまとめて見る',()=>gotoTab('agenda')),button('当番・回答を確認',()=>gotoTab('duty')));}
   function renderAgenda(){const panel=$('panel');panel.append(el('h2','日程・本番'),button('月を選ぶ・予定を作成',()=>gotoTab('month')));sessions().forEach(s=>{const c=el('article',undefined,'card');c.append(el('h3',`${s['日付']} · ${s['種別']}`),el('p',s['種別']==='本番'?eventFor(s)['本番名']:s['備考']||'練習'),button(s['種別']==='本番'?'流れ・配置を見る':'予定・当番を編集',()=>s['種別']==='本番'?openEventSchedule(s):editSession(s)));panel.append(c);});}
-  function renderManage(){const panel=$('panel');panel.append(el('h2','管理'));[['month','日程作成'],['plan','予定・当番'],['roster','名簿・楽器'],['event','本番・曲MC取込']].forEach(([id,label])=>panel.append(button(label,()=>gotoTab(id))));panel.append(button('共有データのバックアップを書き出す', exportSharedBackup),el('p','取込・名簿照合の拡張は保留中です。共有データを正本として運用します。','muted'));}
+  function renderManage(){const panel=$('panel');panel.append(el('h2','管理'));[['month','日程作成'],['plan','予定・当番'],['roster','名簿・楽器'],['event','本番の編集']].forEach(([id,label])=>panel.append(button(label,()=>gotoTab(id))));panel.append(button('共有データのバックアップを書き出す', exportSharedBackup),el('p','取込・名簿照合の拡張は保留中です。共有データを正本として運用します。','muted'));}
 
   function fullOverview(session,timeline,edit){const section=el('section',undefined,'integrated-overview');section.append(el('h2','当日の全体'),el('p','原本の順序を保持しています。未記載の入場・退場時刻は追加していません。曲別配置と大バスドラの移動は本人確認済みです。','muted'));
     for(const scope of ['当日進行','ステージ進行']){section.append(el('h3',scope==='当日進行'?'集合から解散まで':'出演中の流れ'));const items=timeline.filter(i=>i['有効']!==false&&(scope==='ステージ進行'?i.scope===scope:i.scope!=='ステージ進行')).sort(scope==='ステージ進行'?(a,b)=>Number(a['並び順'])-Number(b['並び順']):BandShared.compareTimeline);items.forEach((item,index)=>{
@@ -874,7 +874,7 @@
       shell.addEventListener('dragover',e=>{if(!draggingId||draggingId===item['項目ID'])return;const source=timeline.find(i=>i['項目ID']===draggingId);if(source?.['日区分']!==day||source?.scope!==item.scope)return;e.preventDefault();e.dataTransfer.dropEffect='move';const after=e.clientY>shell.getBoundingClientRect().top+shell.offsetHeight/2;overview.querySelectorAll('.drop-before,.drop-after').forEach(n=>n.classList.remove('drop-before','drop-after'));shell.classList.add(after?'drop-after':'drop-before');});shell.addEventListener('dragleave',e=>{if(!shell.contains(e.relatedTarget))shell.classList.remove('drop-before','drop-after');});shell.addEventListener('drop',e=>{e.preventDefault();const id=draggingId;const after=shell.classList.contains('drop-after');draggingId='';applyMove(id,item['項目ID'],after);});list.append(shell);});overview.append(list);}if(!rows().length)overview.append(el('p','「＋追加」から曲・MC・その他を選んで始めます。','muted'));};
     overview.addEventListener('dragover',e=>{if(!draggingId)return;const box=overview.getBoundingClientRect();if(e.clientY<box.top+28)overview.scrollTop-=14;else if(e.clientY>box.bottom-28)overview.scrollTop+=14;});
     const drawEditor=()=>{editor.replaceChildren();const item=rows().find(item=>item['項目ID']===selectedId);if(!item){editor.append(el('p','一覧から項目を選んで編集します。','muted'));return;}editor.append(timelineEditor(item,()=>{drawEditor();drawOverview();},drawOverview));const controls=el('div',undefined,'layout-controls');const list=rows().filter(row=>row['日区分']===item['日区分']);const index=list.indexOf(item);const up=button('同じ日の一覧で前へ',()=>reorder(item,-1));up.disabled=index<=0;const down=button('同じ日の一覧で後へ',()=>reorder(item,1));down.disabled=index>=list.length-1;controls.append(up,down);editor.append(controls);};
-    const add=(kind,scope)=>{const anchor=rows().find(i=>i['項目ID']===selectedId&&i.scope===scope);const item={'項目ID':`TL-${crypto.randomUUID()}`,'予定ID':sessionId,'日区分':anchor?.['日区分']||'当日','時刻':'','並び順':Math.max(0,...timeline.map(row=>Number(row['並び順'])||0))+1,scope,'種別':kind,'内容':'',stageJSON:JSON.stringify({placeText:scope==='当日進行'?(event['会場']||''):''}),'場所ID':'','担当':'','担当自由入力':'','持ち物':'','注意点':'','有効':true};timeline.push(item);data.timelineItems.push(item);if(anchor)BandShared.reorderTimeline(timeline,item['項目ID'],anchor['項目ID'],true).forEach(row=>mark('timelineItems',timelineKey(row)));selectedId=item['項目ID'];selectedTimelineItems.set(sessionId+'-'+view,selectedId);mark('timelineItems',timelineKey(item));if(view==='day'){draw();}else{drawEditor();drawOverview();editor.scrollIntoView({block:'nearest'});}};
+    const add=(kind,scope)=>{const anchor=rows().find(i=>i['項目ID']===selectedId&&i.scope===scope);const item={'項目ID':`TL-${crypto.randomUUID()}`,'予定ID':sessionId,'日区分':anchor?.['日区分']||'当日','時刻':'','並び順':Math.max(0,...timeline.map(row=>Number(row['並び順'])||0))+1,scope,'種別':kind,'内容':'',stageJSON:JSON.stringify({placeText:scope==='当日進行'?(event['会場']||''):''}),'場所ID':'','担当':'','担当自由入力':'','持ち物':'','注意点':'','有効':true};timeline.push(item);data.timelineItems.push(item);if(anchor)BandShared.reorderTimeline(timeline,item['項目ID'],anchor['項目ID'],true).forEach(row=>mark('timelineItems',timelineKey(row)));selectedId=item['項目ID'];selectedTimelineItems.set(sessionId+'-'+view,selectedId);mark('timelineItems',timelineKey(item));if(view==='day'||view==='stage'){draw();}else{drawEditor();drawOverview();editor.scrollIntoView({block:'nearest'});}};
     const chooseAddition = () => {
       if (document.querySelector('.event-add-dialog')) return;
       document.activeElement?.blur();
@@ -890,30 +890,46 @@
       dialog.append(options, el('p', '曲・MCは「曲・MC」、その他は「当日の流れ」に追加します。', 'muted'), button('キャンセル', () => dialog.close()));
       dialog.addEventListener('close', () => dialog.remove(), { once: true }); document.body.append(dialog); dialog.showModal();
     };
-    const drawDayTable = () => {
-      const wrap = el('div', undefined, 'day-table-wrap');
-      const table = el('table', undefined, 'day-edit-table'); table.append(el('caption', '当日の流れ — セルを直接編集できます'));
-      const head = el('thead'), hr = el('tr'); ['時刻', '内容', '場所', '担当'].forEach(t => { const th = el('th', t); th.scope='col'; hr.append(th); }); head.append(hr); table.append(head);
-      const tbody = el('tbody'); table.append(tbody);
-      rows().forEach((item, index) => {
-        const tr = el('tr'); tr.dataset.itemId=item['項目ID'];
-        const change = (key, value) => { item[key]=value; mark('timelineItems',timelineKey(item)); };
-        const time=el('td'), content=el('td'), place=el('td'), person=el('td');
-        time.append(field(`${index+1} 時刻（未定なら空欄）`,item['時刻'],v=>change('時刻',v),'time'),el('small',item['日区分']));
-        content.append(field(`${index+1} 内容`,item['内容'],v=>change('内容',v),'textarea'));
-        const location=field(`${index+1} 場所`,BandShared.timelinePlace(item,data.masters.places),v=>{const st=BandShared.readStage(item);st.placeText=v;change('stageJSON',JSON.stringify(st));});location.querySelector('input').maxLength=200;location.querySelector('input').placeholder='未定';place.append(location);
-        const summary=el('small',timelineAssigneeText(item),'day-assignee-summary');
-        person.append(field(`${index+1} 担当（自由入力）`,item['担当自由入力'],v=>{change('担当自由入力',v);summary.textContent=timelineAssigneeText(item);}),summary);
-        const details=el('details');details.append(el('summary','名簿担当・詳細'));
-        const detailBody=el('div');
-        const refreshDetails=()=>{detailBody.replaceChildren(timelineEditor(item,()=>{if(item['有効']===false||item.scope==='ステージ進行'){draw();return;}refreshDetails();summary.textContent=timelineAssigneeText(item);},()=>{summary.textContent=timelineAssigneeText(item);},true));detailBody.querySelectorAll('details').forEach(d=>d.open=true);};refreshDetails();details.append(detailBody);person.append(details);
-        const moves=el('div',undefined,'day-row-actions');
-        const move=(delta)=>{reorder(item,delta);draw();};
-        const up=button('↑',()=>move(-1)),down=button('↓',()=>move(1));up.setAttribute('aria-label',`${index+1}行目を上へ`);down.setAttribute('aria-label',`${index+1}行目を下へ`);up.disabled=index===0;down.disabled=index===rows().length-1;moves.append(up,down);time.append(moves);
-        tr.append(time,content,place,person);tbody.append(tr);
+    const drawStageTable = () => {
+      const list=el('div',undefined,'simple-stage-list');
+      rows().forEach((item,index)=>{
+        const row=el('section',undefined,'simple-stage-row');row.dataset.itemId=item['項目ID'];
+        const change=(key,value)=>{item[key]=value;mark('timelineItems',timelineKey(item));};
+        const head=el('div',undefined,'simple-stage-head');head.append(el('strong',`${index+1} · ${item['種別']||'その他'}`));
+        const move=delta=>{document.activeElement?.blur();reorder(item,delta);draw();};
+        const up=button('↑',()=>move(-1)),down=button('↓',()=>move(1));up.setAttribute('aria-label',`${index+1}番目を上へ`);down.setAttribute('aria-label',`${index+1}番目を下へ`);up.disabled=index===0;down.disabled=index===rows().length-1;head.append(up,down);row.append(head);
+        if(item['種別']==='MC'){
+          const who=field(`${index+1} MC担当（自由入力）`,item['担当自由入力'],v=>change('担当自由入力',v));
+          const linked=timelineAssigneeText({...item,'担当自由入力':''});who.querySelector('input').placeholder=linked==='未指定'?'担当の名前':`名簿担当：${linked}`;row.append(who);
+          if(linked!=='未指定')row.append(el('small',`名簿からの担当：${linked}（変更は詳細から）`,'muted'));
+          row.append(field(`${index+1} MC台本`,item['内容'],v=>change('内容',v),'textarea'));
+        }else row.append(field(`${index+1} ${item['種別']==='曲'?'曲名':'内容'}`,item['内容'],v=>change('内容',v)));
+        const details=el('details');details.append(el('summary','配置・名簿担当・その他の設定'));
+        const detailBody=el('div');details.addEventListener('toggle',()=>{if(details.open){detailBody.replaceChildren(timelineEditor(item,()=>draw(),()=>{},false));}else if(details.isConnected){draw();}});details.append(detailBody);row.append(details);
+        row.append(button('この項目を削除',()=>confirmRemoval(item['内容']||'この項目',()=>{change('有効',false);draw();}),undefined,'danger'));
+        list.append(row);
       });
-      wrap.append(table); if(!rows().length)wrap.append(el('p','「＋追加」から予定を追加します。'));
-      return wrap;
+      if(!rows().length)list.append(el('p','「＋曲」または「＋MC」で追加できます。'));
+      return list;
+    };
+    const drawDayTable = () => {
+      const wrap=el('div',undefined,'day-table-wrap compact-day');
+      wrap.append(el('p','セルを押して直接入力できます。長い内容や名簿担当は「詳細」。時刻未定の曲・MCは登録順です。','muted'));
+      const table=el('table',undefined,'day-edit-table');const head=el('thead'),hr=el('tr');['時刻','内容・曲名','場所','担当'].forEach(t=>{const th=el('th',t);th.scope='col';hr.append(th);});head.append(hr);table.append(head);const tbody=el('tbody');table.append(tbody);
+      const all=timeline.filter(i=>i['有効']!==false).slice().sort((a,b)=>(a['日区分']==='前日'?0:1)-(b['日区分']==='前日'?0:1)||String(a['時刻']||'99:99').localeCompare(String(b['時刻']||'99:99'))||Number(a['並び順']||0)-Number(b['並び順']||0));
+      all.forEach((item,index)=>{
+        const tr=el('tr');tr.dataset.itemId=item['項目ID'];const change=(key,value)=>{item[key]=value;mark('timelineItems',timelineKey(item));};
+        const time=el('td'),content=el('td'),place=el('td'),person=el('td');
+        time.append(field(`${index+1} 時刻（未定なら空欄）`,item['時刻'],v=>change('時刻',v)));
+        if(!item['時刻'])time.append(el('small','未定'));
+        if(item['日区分']==='前日')time.append(el('small','前日'));
+        if(item['種別']==='MC')content.append(el('strong','MC'),field(`${index+1} MC台本`,item['内容'],v=>change('内容',v)));
+        else content.append(field(`${index+1} ${item['種別']==='曲'?'曲名':'内容'}`,item['内容'],v=>change('内容',v)));
+        const loc=field(`${index+1} 場所`,BandShared.timelinePlace(item,data.masters.places),v=>{const st=BandShared.readStage(item);st.placeText=v;change('stageJSON',JSON.stringify(st));});loc.querySelector('input').placeholder='未定';place.append(loc);
+        const who=field(`${index+1} 担当（自由入力）`,item['担当自由入力'],v=>change('担当自由入力',v));const linked=timelineAssigneeText({...item,'担当自由入力':''});who.querySelector('input').placeholder=linked==='未指定'?'未指定':linked;person.append(who);if(linked!=='未指定')person.append(el('small',`名簿：${linked}`));
+        const detail=el('details');detail.append(el('summary','詳細'));const panel=el('div',undefined,'compact-day-detail');
+        detail.addEventListener('toggle',()=>{if(detail.open){panel.replaceChildren(timelineEditor(item,()=>draw(),()=>{},false));const move=delta=>{const peers=timeline.filter(i=>i['有効']!==false&&i.scope===item.scope&&i['日区分']===item['日区分']).sort((a,b)=>Number(a['並び順'])-Number(b['並び順']));const at=peers.indexOf(item),target=peers[at+delta];if(target)BandShared.reorderTimeline(timeline,item['項目ID'],target['項目ID'],delta>0).forEach(i=>mark('timelineItems',timelineKey(i)));draw();};panel.append(button('順番を上へ',()=>move(-1)),button('順番を下へ',()=>move(1)));}else if(detail.isConnected)draw();});detail.append(panel);content.append(detail);tr.append(time,content,place,person);tbody.append(tr);
+      });wrap.append(table);return wrap;
     };
     const draw=()=>{
       tabsBox.replaceChildren(pills([['overview','全体を見る'],['day','当日の流れ'],['stage','曲・MC'],['layout','配置図']],view,id=>{document.activeElement?.blur();view=id;eventViews.set(sessionId,id);selectedId=selectedTimelineItems.get(sessionId+'-'+id)||'';draw();},'本番画面の切替'));
@@ -927,6 +943,7 @@
       if(view==='overview'){actions.replaceChildren(save,state);body.append(fullOverview(session,timeline,item=>{view=item.scope==='ステージ進行'?'stage':'day';eventViews.set(sessionId,view);selectedId=item['項目ID'];selectedTimelineItems.set(sessionId+'-'+view,selectedId);draw();}));updateSaveState();return;}
       if(view==='layout'){body.append(layoutEditor(session)); updateSaveState(); return;}
       if(view==='day'){body.append(drawDayTable());updateSaveState();return;}
+      if(view==='stage'){actions.replaceChildren(button('＋曲',()=>add('曲','ステージ進行')),button('＋MC',()=>add('MC','ステージ進行')),button('＋その他',chooseAddition),save,state);addHint.hidden=true;moveNotice.hidden=true;body.append(drawStageTable());updateSaveState();return;}
       if(!rows().some(item=>item['項目ID']===selectedId))selectedId=rows()[0]?.['項目ID']||'';
       selectedTimelineItems.set(sessionId+'-'+view,selectedId);
       const split=el('div',undefined,'event-split');split.append(overview,editor);body.append(split);drawEditor();drawOverview();
