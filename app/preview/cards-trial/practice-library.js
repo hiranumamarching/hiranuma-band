@@ -18,6 +18,7 @@ window.TrialPractice=(()=>{
  panel.append(node('p','リンク先の閲覧権限は変更しません。資料はリンクを押した時だけ開きます。動画のアップロードや埋め込みは行いません。'));
  const select=node('select');select.setAttribute('aria-label','練習日');select.append(new Option('練習日を選ぶ（任意）',''));for(const s of sessions.filter(s=>s['種別']!=='本番'))select.append(new Option(s['日付']+' '+s['種別'],s['予定ID']));select.value=session;select.onchange=()=>{session=select.value;redraw();};panel.append(select);
  if(session){
+  if(onOpen){const duties=node('section');duties.className='practice-item';duties.append(node('h3','当番'),node('p',onOpen.summary(session)),btn('当番を入力・変更',()=>onOpen.edit(session)));panel.append(duties);}
   const record=draft.practiceNotes?.[session]||{done:'',next:''};
   const notes=node('section');notes.className='practice-item';notes.append(node('h3','練習の記録'),node('p','予定の備考とは別の記録です。この端末だけに保存します。'));
   for(const [key,label] of [['done','やったこと'],['next','次回やること']]){const wrap=node('label',label),area=node('textarea');area.rows=2;area.value=record[key]||'';area.setAttribute('aria-label',label);area.oninput=()=>{if(!draft.practiceNotes)draft.practiceNotes={};if(!draft.practiceNotes[session])draft.practiceNotes[session]={done:'',next:''};draft.practiceNotes[session][key]=area.value;dirty=true;};wrap.append(area);notes.append(wrap);}

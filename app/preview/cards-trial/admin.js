@@ -148,7 +148,7 @@
       const b = button(label, () => { tab = id; render(); }, tab === id); b.setAttribute('aria-controls', 'panel'); return b;
     }));
     $('panel').replaceChildren();
-    ({ practice:()=>TrialPractice.render($('panel'),'songs',data.sessions), clothes:()=>TrialPractice.render($('panel'),'clothes',data.sessions), home: renderHome, agenda: renderAgenda, manage: renderManage, month: renderMonth, plan: renderPlan, schedule: renderSchedule, duty: renderDuty, event: renderEvent, publish: renderPublish, roster: renderRoster, references: renderReferences })[tab]();
+    ({ practice:renderPractice, practiceDuty:renderPracticeDuty, clothes:()=>TrialPractice.render($('panel'),'clothes',data.sessions), home: renderHome, agenda: renderAgenda, manage: renderManage, month: renderMonth, plan: renderPlan, schedule: renderSchedule, duty: renderDuty, event: renderEvent, publish: renderPublish, roster: renderRoster, references: renderReferences })[tab]();
     updateSaveState();
   }
 
@@ -157,6 +157,13 @@
   async function exportSharedBackup(){try{if(hasChanges())throw Error('先に変更を保存してください。');const result=await api.request('admin_export_backup');const url=URL.createObjectURL(new Blob([JSON.stringify(result.backup)],{type:'application/json'}));const link=el('a');link.href=url;link.download='marching-shared-backup.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),60000);message('バックアップの保存を要求しました。個人情報・招待情報を含むため非公開で保管してください。');}catch(e){message(e.message,true);}}
   function renderHome(){const panel=$('panel');panel.append(el('h2','活動の確認'),el('p','管理者用画面です。共有保存先から読み込んだ予定・当番を確認します。','muted'));const next=eventSessions()[0];if(next){const c=el('section',undefined,'card');c.append(el('h3',eventFor(next)['本番名']),el('p',`${next['日付']} / 集合 ${next['集合']||'未定'} / ${eventFor(next)['会場']||'会場未定'}`),button('本番の全体を見る',()=>openEventSchedule(next)));panel.append(c);}panel.append(button('日程・本番をまとめて見る',()=>gotoTab('agenda')),button('当番・回答を確認',()=>gotoTab('duty')));}
   function renderAgenda(){const panel=$('panel');panel.append(el('h2','日程・本番'),button('月を選ぶ・予定を作成',()=>gotoTab('month')));const list=el('div',undefined,'compact-agenda');sessions().forEach(s=>{const date=new Date(s['日付']+'T12:00:00'),short=Number(s['日付'].slice(5,7))+'/'+Number(s['日付'].slice(8,10))+'（'+'日月火水木金土'[date.getDay()]+'）';const name=s['種別']==='本番'?(eventFor(s)['本番名']||'本番'):s['種別'];const row=button('',()=>s['種別']==='本番'?openEventSchedule(s):editSession(s),undefined,'compact-agenda-row');row.setAttribute('aria-label',`${s['日付']} ${name} ${s['種別']==='本番'?'流れ・配置を見る':'予定・当番を編集'}`);row.title=[s['日付'],name,s['備考']].filter(Boolean).join(' ');row.append(el('span',short,'agenda-date'),el('span',name,'agenda-name'),el('span','〉','agenda-arrow'));if(s['種別']!=='本番'){const wrap=el('div',undefined,'practice-agenda');wrap.append(row,button('記録・曲',()=>{TrialPractice.openSession(s['予定ID']);gotoTab('practice');}));list.append(wrap);}else list.append(row);});panel.append(list);}
+
+  let practiceDutyId='';
+  function renderPractice(){TrialPractice.render($('panel'),'songs',data.sessions,{
+    summary:id=>data.dutyAssignments.filter(d=>d['予定ID']===id&&d['保護者ID']).map(d=>{const division=String(d['区分']||'');const slot=division.startsWith('午前-')?'午前':division.startsWith('午後-')?'午後':'時間帯未設定';return `${d['役割']}（${slot}）：${data.masters.guardians.find(g=>g['保護者ID']===d['保護者ID'])?.['表示名']||'退籍保護者'}`;}).join(' ／ ')||'未設定',
+    edit:id=>{practiceDutyId=id;gotoTab('practiceDuty');}
+  });}
+  function renderPracticeDuty(){const s=data.sessions.find(s=>s['予定ID']===practiceDutyId);if(!s){gotoTab('practice');return;}const panel=$('panel');panel.append(el('h2',s['日付']+' の当番'),el('p','午前・午後を選び、「担当を追加」で名前を選択します。複数名を追加できます。上の「下書きを保存」でこの端末に保存します。','muted'),button('記録・曲へ戻る',()=>{TrialPractice.openSession(practiceDutyId);gotoTab('practice');}),dutyCard(s));}
 
   function renderManage(){const panel=$('panel');panel.append(el('h2','管理'));[['month','日程作成'],['plan','予定・当番'],['roster','名簿・楽器'],['event','本番の編集'],['clothes','衣装']].forEach(([id,label])=>panel.append(button(label,()=>gotoTab(id))));panel.append(button('共有データのバックアップを書き出す', exportSharedBackup),el('p','取込・名簿照合の拡張は保留中です。共有データを正本として運用します。','muted'));}
 
