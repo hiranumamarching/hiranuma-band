@@ -140,6 +140,7 @@
     $('connection').hidden = true; $('workspace').hidden = false; render();
   }
   function render() {
+    TrialPractice.disposeVideo();
     $('month-title').textContent = `${monthId.replace('-', '年')}月 · ${currentMonth()?.['状態'] || '未作成'}`;
     $('tabs').replaceChildren(...tabs.map(([id, label]) => {
       const b = button(label, () => { tab = id; render(); }, tab === id); b.setAttribute('aria-controls', 'panel'); return b;
