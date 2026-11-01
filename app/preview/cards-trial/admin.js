@@ -4,7 +4,7 @@
   const $ = id => document.getElementById(id);
   const bool = v => v === true || v === 'true' || v === 1 || v === '1' || v === '○';
   const roles = ['当番'];
-  const tabs = [['home','ホーム'],['agenda','日程・本番'],['manage','管理']];
+  const tabs = [['home','ホーム'],['agenda','日程・本番'],['practice','練習・楽曲'],['manage','管理']];
   const utilityTabs = [['references','使い方・資料']];
   const dirty = { sessions: new Set(), selfPractice: new Set(), dutyAssignments: new Set(), teacherAvailability: new Set(), teachers: new Set(), events: new Set(), timelineItems: new Set(), layouts: new Set(), instruments: new Set(), guideItems: new Set(), annualEvents: new Set() };
   const familyAddDraft = {}; let familyAddOpen = false;
@@ -148,7 +148,7 @@
       const b = button(label, () => { tab = id; render(); }, tab === id); b.setAttribute('aria-controls', 'panel'); return b;
     }));
     $('panel').replaceChildren();
-    ({ home: renderHome, agenda: renderAgenda, manage: renderManage, month: renderMonth, plan: renderPlan, schedule: renderSchedule, duty: renderDuty, event: renderEvent, publish: renderPublish, roster: renderRoster, references: renderReferences })[tab]();
+    ({ practice:()=>TrialPractice.render($('panel'),'songs',data.sessions), clothes:()=>TrialPractice.render($('panel'),'clothes',data.sessions), home: renderHome, agenda: renderAgenda, manage: renderManage, month: renderMonth, plan: renderPlan, schedule: renderSchedule, duty: renderDuty, event: renderEvent, publish: renderPublish, roster: renderRoster, references: renderReferences })[tab]();
     updateSaveState();
   }
 
@@ -156,9 +156,9 @@
 
   async function exportSharedBackup(){try{if(hasChanges())throw Error('先に変更を保存してください。');const result=await api.request('admin_export_backup');const url=URL.createObjectURL(new Blob([JSON.stringify(result.backup)],{type:'application/json'}));const link=el('a');link.href=url;link.download='marching-shared-backup.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),60000);message('バックアップの保存を要求しました。個人情報・招待情報を含むため非公開で保管してください。');}catch(e){message(e.message,true);}}
   function renderHome(){const panel=$('panel');panel.append(el('h2','活動の確認'),el('p','管理者用画面です。共有保存先から読み込んだ予定・当番を確認します。','muted'));const next=eventSessions()[0];if(next){const c=el('section',undefined,'card');c.append(el('h3',eventFor(next)['本番名']),el('p',`${next['日付']} / 集合 ${next['集合']||'未定'} / ${eventFor(next)['会場']||'会場未定'}`),button('本番の全体を見る',()=>openEventSchedule(next)));panel.append(c);}panel.append(button('日程・本番をまとめて見る',()=>gotoTab('agenda')),button('当番・回答を確認',()=>gotoTab('duty')));}
-  function renderAgenda(){const panel=$('panel');panel.append(el('h2','日程・本番'),button('月を選ぶ・予定を作成',()=>gotoTab('month')));const list=el('div',undefined,'compact-agenda');sessions().forEach(s=>{const date=new Date(s['日付']+'T12:00:00'),short=Number(s['日付'].slice(5,7))+'/'+Number(s['日付'].slice(8,10))+'（'+'日月火水木金土'[date.getDay()]+'）';const name=s['種別']==='本番'?(eventFor(s)['本番名']||'本番'):s['種別'];const row=button('',()=>s['種別']==='本番'?openEventSchedule(s):editSession(s),undefined,'compact-agenda-row');row.setAttribute('aria-label',`${s['日付']} ${name} ${s['種別']==='本番'?'流れ・配置を見る':'予定・当番を編集'}`);row.title=[s['日付'],name,s['備考']].filter(Boolean).join(' ');row.append(el('span',short,'agenda-date'),el('span',name,'agenda-name'),el('span','〉','agenda-arrow'));list.append(row);});panel.append(list);}
+  function renderAgenda(){const panel=$('panel');panel.append(el('h2','日程・本番'),button('月を選ぶ・予定を作成',()=>gotoTab('month')));const list=el('div',undefined,'compact-agenda');sessions().forEach(s=>{const date=new Date(s['日付']+'T12:00:00'),short=Number(s['日付'].slice(5,7))+'/'+Number(s['日付'].slice(8,10))+'（'+'日月火水木金土'[date.getDay()]+'）';const name=s['種別']==='本番'?(eventFor(s)['本番名']||'本番'):s['種別'];const row=button('',()=>s['種別']==='本番'?openEventSchedule(s):editSession(s),undefined,'compact-agenda-row');row.setAttribute('aria-label',`${s['日付']} ${name} ${s['種別']==='本番'?'流れ・配置を見る':'予定・当番を編集'}`);row.title=[s['日付'],name,s['備考']].filter(Boolean).join(' ');row.append(el('span',short,'agenda-date'),el('span',name,'agenda-name'),el('span','〉','agenda-arrow'));if(s['種別']!=='本番'){const wrap=el('div',undefined,'practice-agenda');wrap.append(row,button('楽曲',()=>{TrialPractice.openSession(s['予定ID']);gotoTab('practice');}));list.append(wrap);}else list.append(row);});panel.append(list);}
 
-  function renderManage(){const panel=$('panel');panel.append(el('h2','管理'));[['month','日程作成'],['plan','予定・当番'],['roster','名簿・楽器'],['event','本番の編集']].forEach(([id,label])=>panel.append(button(label,()=>gotoTab(id))));panel.append(button('共有データのバックアップを書き出す', exportSharedBackup),el('p','取込・名簿照合の拡張は保留中です。共有データを正本として運用します。','muted'));}
+  function renderManage(){const panel=$('panel');panel.append(el('h2','管理'));[['month','日程作成'],['plan','予定・当番'],['roster','名簿・楽器'],['event','本番の編集'],['clothes','衣装']].forEach(([id,label])=>panel.append(button(label,()=>gotoTab(id))));panel.append(button('共有データのバックアップを書き出す', exportSharedBackup),el('p','取込・名簿照合の拡張は保留中です。共有データを正本として運用します。','muted'));}
 
   function fullOverview(session,timeline,edit){const section=el('section',undefined,'integrated-overview');section.append(el('h2','当日の全体'),el('p','原本の順序を保持しています。未記載の入場・退場時刻は追加していません。曲別配置と大バスドラの移動は本人確認済みです。','muted'));
     for(const scope of ['当日進行','ステージ進行']){section.append(el('h3',scope==='当日進行'?'集合から解散まで':'出演中の流れ'));const items=timeline.filter(i=>i['有効']!==false&&(scope==='ステージ進行'?i.scope===scope:i.scope!=='ステージ進行')).sort(scope==='ステージ進行'?(a,b)=>Number(a['並び順'])-Number(b['並び順']):BandShared.compareTimeline);items.forEach((item,index)=>{
